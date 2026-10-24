@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie } from "hono/cookie";
 import { getTablePrefix, type HonoEnv } from "../types";
+import { ensureSchema } from "../lib/migrate";
 import {
   generateId,
   generateToken,
@@ -57,7 +58,18 @@ authRoutes.get("/setup", async (c) => {
 });
 
 authRoutes.post("/setup", async (c) => {
-  const prefix = getTablePrefix(c.env);
+  // Resolve the effective prefix before initialization (SPEC v1.4); a
+  // malformed custom prefix rejects setup outright.
+  let prefix: string;
+  try {
+    prefix = getTablePrefix(c.env);
+  } catch {
+    return c.json({ error: "invalid TABLE_PREFIX configuration" }, 500);
+  }
+
+  // Apply the idempotent schema (creates {prefix}* tables on first setup).
+  await ensureSchema(c.env);
+
   const users = await countUsers(c.env.DB, prefix);
   if (users > 0) return c.json({ error: "setup already completed" }, 403);
 
@@ -92,7 +104,11 @@ authRoutes.post("/setup", async (c) => {
 
   await issueSession(c, created.id);
   return c.json(
-    { success: true, user: { id: created.id, username: created.username } },
+    {
+      success: true,
+      user: { id: created.id, username: created.username },
+      tablePrefix: prefix,
+    },
     201,
   );
 });
