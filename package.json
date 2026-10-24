@@ -1,0 +1,29 @@
+{
+  "name": "nav",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"pnpm dev:worker\" \"pnpm dev:web\"",
+    "dev:web": "pnpm --filter web dev",
+    "dev:worker": "pnpm --filter worker dev",
+    "lint": "biome lint .",
+    "format:check": "biome format .",
+    "format": "biome format --write .",
+    "build": "pnpm --filter web build && pnpm --filter worker build",
+    "build:web": "pnpm --filter web build",
+    "build:worker": "pnpm --filter worker build",
+    "test": "pnpm --filter worker test",
+    "deploy": "pnpm build:web && pnpm --filter worker deploy",
+    "typecheck": "pnpm --filter web typecheck && pnpm --filter worker typecheck"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
+    "concurrently": "^10.0.3",
+    "typescript": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "packageManager": "pnpm@12.14.0"
+}
