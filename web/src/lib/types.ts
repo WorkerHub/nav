@@ -1,0 +1,121 @@
+/**
+ * nav 前端数据契约（对齐冻结契约 docs/api-contract.md，字段 camelCase）。
+ *
+ * 两组 DTO：
+ *  - SiteData：GET /api/public 与 GET /api/private（分类内嵌链接，无 visibility / 时间戳）。
+ *  - Admin*：/api/admin/* 各实体独立 CRUD（扁平列表，含 visibility / 时间戳）。
+ */
+
+export type Visibility = "public" | "private";
+
+// ─── 站点数据（/api/public、/api/private）─────────────────────────────────────
+
+export interface SiteLink {
+  id: string;
+  categoryId: string;
+  title: string;
+  url: string;
+  iconUrl: string | null;
+  description: string | null;
+  sortOrder: number;
+}
+
+export interface SiteCategory {
+  id: string;
+  name: string;
+  icon: string | null;
+  sortOrder: number;
+  links: SiteLink[];
+}
+
+export interface SearchEngine {
+  id: string;
+  name: string;
+  /** 含 `{q}` 占位符 */
+  urlTemplate: string;
+  icon: string | null;
+  sortOrder: number;
+  isDefault: boolean;
+}
+
+export interface SiteSettings {
+  siteTitle: string;
+  backgroundUrl: string;
+  theme: "system" | "light" | "dark";
+  /** 1–12，0 表示未配置（用默认值） */
+  columns: number;
+}
+
+export interface SiteData {
+  categories: SiteCategory[];
+  searchEngines: SearchEngine[];
+  settings: SiteSettings;
+}
+
+export type PublicData = SiteData;
+export type PrivateData = SiteData;
+
+// ─── 后台数据（/api/admin/*）──────────────────────────────────────────────────
+
+export interface AdminCategory {
+  id: string;
+  name: string;
+  icon: string | null;
+  sortOrder: number;
+  visibility: Visibility;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminLink {
+  id: string;
+  categoryId: string;
+  title: string;
+  url: string;
+  iconUrl: string | null;
+  description: string | null;
+  sortOrder: number;
+  visibility: Visibility;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── 导入导出 ─────────────────────────────────────────────────────────────────
+
+export interface ImportLink {
+  title: string;
+  url: string;
+  iconUrl?: string | null;
+  description?: string | null;
+  visibility?: Visibility;
+}
+
+export interface ImportCategory {
+  name: string;
+  icon?: string | null;
+  visibility?: Visibility;
+  links: ImportLink[];
+}
+
+export interface ExportCategory {
+  name: string;
+  icon: string | null;
+  visibility: Visibility;
+  links: ExportLink[];
+}
+
+export interface ExportLink {
+  title: string;
+  url: string;
+  iconUrl: string | null;
+  description: string | null;
+  visibility: Visibility;
+}
+
+export interface NavExport {
+  version: 1;
+  exportedAt: string;
+  categories: ExportCategory[];
+  searchEngines: SearchEngine[];
+  settings: SiteSettings;
+}

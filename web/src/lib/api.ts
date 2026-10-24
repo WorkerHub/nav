@@ -1,0 +1,413 @@
+/**
+ * 接口层：对接冻结契约 docs/api-contract.md（camelCase，端点 /api/auth/*、/api/admin/*）。
+ *
+ * 联调 mock 仅在开发环境动态加载（import.meta.env.DEV），生产构建时该分支被
+ * 死代码消除，mockDb 及其占位数据（含示例私有域名）不会打入产物。
+ */
+import type {
+  AdminCategory,
+  AdminLink,
+  PrivateData,
+  PublicData,
+  SearchEngine,
+  SiteSettings,
+  ImportCategory,
+} from "./types";
+
+export const USE_MOCK = import.meta.env.DEV;
+
+const API = {
+  public: "/api/public",
+  private: "/api/private",
+  auth: "/api/auth",
+  admin: "/api/admin",
+};
+
+/** 动态加载 dev mock（仅开发环境；生产构建死代码消除） */
+async function devMock() {
+  return import("./mockDb").then((m) => m.mockDb);
+}
+
+export class UnauthorizedError extends Error {
+  constructor() {
+    super("unauthorized");
+    this.name = "UnauthorizedError";
+  }
+}
+
+class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    ...init,
+  });
+  if (!res.ok) {
+    let message = `${path} failed: ${res.status}`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(message, res.status);
+  }
+  return (await res.json()) as T;
+}
+
+// ─── 站点数据 ────────────────────────────────────────────────────────────────
+
+/** GET /api/public */
+export async function getPublic(): Promise<PublicData> {
+  if (USE_MOCK) return (await devMock()).getPublic();
+  return request<PublicData>(API.public);
+}
+
+/** GET /api/private —— 未登录抛 UnauthorizedError（对应 401 JSON），响应 no-store */
+export async function getPrivate(): Promise<PrivateData> {
+  if (USE_MOCK) {
+    const mock = await devMock();
+    if (!mock.isLoggedIn()) throw new UnauthorizedError();
+    return mock.getPrivate();
+  }
+  const res = await fetch(API.private, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+  });
+  if (res.status === 401) throw new UnauthorizedError();
+  if (!res.ok) {
+    let message = `${API.private} failed: ${res.status}`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(message, res.status);
+  }
+  return (await res.json()) as PrivateData;
+}
+
+// ─── 鉴权（/api/auth/*）──────────────────────────────────────────────────────
+
+export type LoginResult =
+  | { ok: true }
+  | { requires2fa: true; tempToken: string };
+
+/** POST /api/auth/login —— 第一步：username + password；启用 TOTP 时返回 requires2fa */
+export async function loginPassword(input: {
+  username: string;
+  password: string;
+}): Promise<LoginResult> {
+  if (USE_MOCK) return (await devMock()).loginPassword(input);
+  const res = await request<{
+    success?: boolean;
+    user?: unknown;
+    requires2fa?: boolean;
+    tempToken?: string;
+  }>(`${API.auth}/login`, { method: "POST", body: JSON.stringify(input) });
+  if (res.requires2fa && res.tempToken) {
+    return { requires2fa: true, tempToken: res.tempToken };
+  }
+  return { ok: true };
+}
+
+/** POST /api/auth/2fa/verify —— 第二步：TOTP 校验（成功后下发会话） */
+export async function verifyTotp(input: {
+  tempToken: string;
+  code: string;
+}): Promise<void> {
+  if (USE_MOCK) return (await devMock()).verifyTotp(input);
+  await request(`${API.auth}/2fa/verify`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** POST /api/auth/logout */
+export async function logout(): Promise<void> {
+  if (USE_MOCK) return (await devMock()).logout();
+  await request(`${API.auth}/logout`, { method: "POST" });
+}
+
+// ─── Passkey（WebAuthn，/api/auth/passkey/*）──────────────────────────────────
+
+interface AuthenticateOptions {
+  challenge: string;
+  rpId: string;
+  allowCredentials?: { id: string; type: "public-key" }[];
+  userVerification?: string;
+  timeout?: number;
+  username?: string;
+}
+
+function b64urlToBuffer(input: string): ArrayBuffer {
+  const pad = input.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = pad + "=".repeat((4 - (pad.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+function bufferToB64url(input: ArrayBuffer): string {
+  const bytes = new Uint8Array(input);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/** Passkey 登录：options → navigator.credentials.get → verify */
+export async function loginPasskey(username?: string): Promise<void> {
+  if (USE_MOCK) return (await devMock()).loginPasskey();
+  const options = await request<AuthenticateOptions>(
+    `${API.auth}/passkey/authenticate/options`,
+    { method: "POST", body: JSON.stringify(username ? { username } : {}) },
+  );
+  const publicKey: PublicKeyCredentialRequestOptions = {
+    challenge: b64urlToBuffer(options.challenge),
+    rpId: options.rpId,
+    allowCredentials: options.allowCredentials?.map((c) => ({
+      id: b64urlToBuffer(c.id),
+      type: "public-key" as const,
+    })),
+    userVerification: options.userVerification as
+      | UserVerificationRequirement
+      | undefined,
+    timeout: options.timeout,
+  };
+  const credential = (await navigator.credentials.get({
+    publicKey,
+  })) as PublicKeyCredential | null;
+  if (!credential) throw new Error("passkey cancelled");
+
+  const assertion = credential.response as AuthenticatorAssertionResponse;
+  await request(`${API.auth}/passkey/authenticate/verify`, {
+    method: "POST",
+    body: JSON.stringify({
+      id: credential.id,
+      rawId: bufferToB64url(credential.rawId),
+      type: credential.type,
+      response: {
+        clientDataJSON: bufferToB64url(assertion.clientDataJSON),
+        authenticatorData: bufferToB64url(assertion.authenticatorData),
+        signature: bufferToB64url(assertion.signature),
+        userHandle: assertion.userHandle
+          ? bufferToB64url(assertion.userHandle)
+          : null,
+      },
+      clientExtensionResults: credential.getClientExtensionResults(),
+    }),
+  });
+}
+
+// ─── 后台（/api/admin/*，各实体独立 CRUD）──────────────────────────────────────
+
+export interface AdminData {
+  categories: AdminCategory[];
+  links: AdminLink[];
+  searchEngines: SearchEngine[];
+  settings: SiteSettings;
+}
+
+/** 各实体独立 GET（契约无 /api/admin/all） */
+export async function adminListAll(): Promise<AdminData> {
+  if (USE_MOCK) return (await devMock()).adminListAll();
+  const [categories, links, searchEngines, settings] = await Promise.all([
+    request<{ categories: AdminCategory[] }>(`${API.admin}/categories`),
+    request<{ links: AdminLink[] }>(`${API.admin}/links`),
+    request<{ searchEngines: SearchEngine[] }>(`${API.admin}/search-engines`),
+    request<SiteSettings>(`${API.admin}/settings`),
+  ]);
+  return {
+    categories: categories.categories,
+    links: links.links,
+    searchEngines: searchEngines.searchEngines,
+    settings,
+  };
+}
+
+// 分类
+export async function adminCreateCategory(input: {
+  name: string;
+  icon?: string | null;
+  sortOrder?: number;
+  visibility?: "public" | "private";
+}): Promise<AdminCategory> {
+  if (USE_MOCK) return (await devMock()).createCategory(input);
+  return request<AdminCategory>(`${API.admin}/categories`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function adminUpdateCategory(
+  id: string,
+  input: Partial<AdminCategory>,
+): Promise<AdminCategory> {
+  if (USE_MOCK) return (await devMock()).updateCategory(id, input);
+  return request<AdminCategory>(`${API.admin}/categories/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function adminDeleteCategory(id: string): Promise<void> {
+  if (USE_MOCK) return (await devMock()).deleteCategory(id);
+  await request(`${API.admin}/categories/${id}`, { method: "DELETE" });
+}
+
+export async function adminReorderCategories(ids: string[]): Promise<void> {
+  if (USE_MOCK) return (await devMock()).reorderCategories(ids);
+  await request(`${API.admin}/categories/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+// 链接
+export async function adminCreateLink(input: {
+  title: string;
+  url: string;
+  categoryId: string;
+  iconUrl?: string | null;
+  description?: string | null;
+  sortOrder?: number;
+  visibility?: "public" | "private";
+}): Promise<AdminLink> {
+  if (USE_MOCK) return (await devMock()).createLink(input);
+  return request<AdminLink>(`${API.admin}/links`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function adminUpdateLink(
+  id: string,
+  input: Partial<AdminLink>,
+): Promise<AdminLink> {
+  if (USE_MOCK) return (await devMock()).updateLink(id, input);
+  return request<AdminLink>(`${API.admin}/links/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function adminDeleteLink(id: string): Promise<void> {
+  if (USE_MOCK) return (await devMock()).deleteLink(id);
+  await request(`${API.admin}/links/${id}`, { method: "DELETE" });
+}
+
+export async function adminReorderLinks(ids: string[]): Promise<void> {
+  if (USE_MOCK) return (await devMock()).reorderLinks(ids);
+  await request(`${API.admin}/links/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+// 搜索引擎
+export async function adminCreateEngine(input: {
+  name: string;
+  urlTemplate: string;
+  icon?: string | null;
+  sortOrder?: number;
+  isDefault?: boolean;
+}): Promise<SearchEngine> {
+  if (USE_MOCK) return (await devMock()).createEngine(input);
+  return request<SearchEngine>(`${API.admin}/search-engines`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function adminUpdateEngine(
+  id: string,
+  input: Partial<SearchEngine>,
+): Promise<SearchEngine> {
+  if (USE_MOCK) return (await devMock()).updateEngine(id, input);
+  return request<SearchEngine>(`${API.admin}/search-engines/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function adminDeleteEngine(id: string): Promise<void> {
+  if (USE_MOCK) return (await devMock()).deleteEngine(id);
+  await request(`${API.admin}/search-engines/${id}`, { method: "DELETE" });
+}
+
+export async function adminReorderEngines(ids: string[]): Promise<void> {
+  if (USE_MOCK) return (await devMock()).reorderEngines(ids);
+  await request(`${API.admin}/search-engines/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+// 站点设置
+export async function adminUpdateSettings(
+  input: Partial<SiteSettings>,
+): Promise<SiteSettings> {
+  if (USE_MOCK) return (await devMock()).updateSettings(input);
+  return request<SiteSettings>(`${API.admin}/settings`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+// ─── 导入（前端解析 → 逐条经 admin CRUD 落库，契约无批量导入端点）──────────────
+
+export async function adminImportCategories(
+  categories: ImportCategory[],
+): Promise<{ categoryCount: number; linkCount: number }> {
+  if (USE_MOCK) return (await devMock()).importCategories(categories);
+  let categoryCount = 0;
+  let linkCount = 0;
+  for (const cat of categories) {
+    const created = await adminCreateCategory({
+      name: cat.name,
+      icon: cat.icon ?? null,
+      visibility: cat.visibility ?? "public",
+    });
+    categoryCount++;
+    for (const link of cat.links) {
+      await adminCreateLink({
+        title: link.title,
+        url: link.url,
+        categoryId: created.id,
+        iconUrl: link.iconUrl ?? null,
+        description: link.description ?? null,
+        visibility: link.visibility ?? "public",
+      });
+      linkCount++;
+    }
+  }
+  return { categoryCount, linkCount };
+}
+
+export async function adminImportEngines(
+  engines: SearchEngine[],
+): Promise<void> {
+  if (USE_MOCK) return (await devMock()).importEngines(engines);
+  for (const engine of engines) {
+    await adminCreateEngine({
+      name: engine.name,
+      urlTemplate: engine.urlTemplate,
+      icon: engine.icon,
+      isDefault: engine.isDefault,
+    });
+  }
+}

@@ -5,3 +5,5 @@ allowBuilds:
   "@biomejs/biome": true
   esbuild: true
   workerd: true
+minimumReleaseAgeExclude:
+  - react-hook-form@7.91.0
