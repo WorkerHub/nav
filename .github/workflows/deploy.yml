@@ -42,9 +42,12 @@ jobs:
           SETUP_SECRET: ${{ secrets.SETUP_SECRET }}
         run: node scripts/materialize-secrets.mjs
 
+      # The worker `deploy` script runs `pnpm codegen` first: schema.generated.ts
+      # is generated from schema.sql and not committed, so it must be regenerated
+      # before every wrangler deploy.
       - name: Deploy Worker
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec wrangler deploy --secrets-file "$RUNNER_TEMP/secrets.json"
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm run deploy --secrets-file "$RUNNER_TEMP/secrets.json"
