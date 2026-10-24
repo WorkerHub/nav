@@ -1,0 +1,60 @@
+name: Deploy
+run-name: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.display_title || format('Manual deploy by {0}', github.actor) }}
+
+# ONE-167: 合并即自动部署 Cloudflare，合并/部署关口归用户。
+# Deploy only runs after CI on main is green, or by manual dispatch.
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-latest
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build web
+        run: pnpm build:web
+
+      # Secrets are written to a private temp file and passed to wrangler as a
+      # secrets file — they never appear in the repo, logs, or wrangler.toml.
+      - name: Materialize secrets
+        env:
+          JWT_SECRET: ${{ secrets.SESSION_SECRET }}
+          SETUP_SECRET: ${{ secrets.SETUP_SECRET }}
+        run: |
+          node -e "
+            fs.writeFileSync(
+              process.env.RUNNER_TEMP + '/secrets.json',
+              JSON.stringify({
+                SESSION_SECRET: process.env.JWT_SECRET,
+                SETUP_SECRET: process.env.SETUP_SECRET,
+              }),
+              { mode: 0o600 },
+            );
+          '
+
+      - name: Deploy Worker
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy --secrets-file "$RUNNER_TEMP/secrets.json"
