@@ -53,7 +53,6 @@
 ### GET /api/private
 
 需有效会话 Cookie（`nav_session`，HttpOnly / Secure / SameSite=Lax）。未登录一律：
-
 - 状态 `401`
 - Body `{"error":"unauthorized"}`
 - Header `Cache-Control: no-store`
@@ -62,25 +61,25 @@
 
 ## 鉴权（/api/auth/*）
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/auth/setup` | `{"enabled":true}` 表示可创建所有者 |
-| POST | `/api/auth/setup` | header `X-Setup-Secret`；body `{username, password}`（password ≥ 8）→ 201 并下发会话；已有账号 → 403 |
-| POST | `/api/auth/login` | body `{username, password}` → `{success, user}`；若已启用 TOTP → `{requires2fa:true, tempToken}`；失败 401 `{"error":"invalid credentials","remainingAttempts":N}`；连续失败 5 次锁定 15 分钟 → 429 |
-| POST | `/api/auth/2fa/verify` | body `{tempToken, code}`（TOTP 6 位）→ 200 并下发会话；错误码 401 |
-| POST | `/api/auth/logout` | 吊销当前会话 |
-| GET | `/api/auth/session` | 会话探测：`{"authenticated":true,"userId":…}`；未登录 401 JSON |
+| 方法 | 路径                   | 说明                                                                                                                                                                                                |
+| ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET  | `/api/auth/setup`      | `{"enabled":true}` 表示可创建所有者                                                                                                                                                                 |
+| POST | `/api/auth/setup`      | header `X-Setup-Secret`；body `{username, password}`（password ≥ 8）→ 201 并下发会话；已有账号 → 403                                                                                                |
+| POST | `/api/auth/login`      | body `{username, password}` → `{success, user}`；若已启用 TOTP → `{requires2fa:true, tempToken}`；失败 401 `{"error":"invalid credentials","remainingAttempts":N}`；连续失败 5 次锁定 15 分钟 → 429 |
+| POST | `/api/auth/2fa/verify` | body `{tempToken, code}`（TOTP 6 位）→ 200 并下发会话；错误码 401                                                                                                                                   |
+| POST | `/api/auth/logout`     | 吊销当前会话                                                                                                                                                                                        |
+| GET  | `/api/auth/session`    | 会话探测：`{"authenticated":true,"userId":…}`；未登录 401 JSON                                                                                                                                      |
 
 Passkey（WebAuthn，/api/auth/passkey/*，@simplewebauthn/server v14）：
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| POST | `/register/options` | 登录后注册 passkey 的 options（rpID = 请求 host） |
-| POST | `/register/verify` | 校验注册响应，落库 `passkey_credentials` |
-| POST | `/authenticate/options` | 免登录取断言 options（可带 `{username}`） |
-| POST | `/authenticate/verify` | 校验断言，成功即建会话 |
-| GET/DELETE | `/credentials` | 查看 / 清除 passkey |
-| GET | `/totp`、POST `/totp/setup`、`/totp/enable`、`/totp/disable` | TOTP 管理（disable 需再输密码） |
+| 方法       | 路径                                                         | 说明                                              |
+| ---------- | ------------------------------------------------------------ | ------------------------------------------------- |
+| POST       | `/register/options`                                          | 登录后注册 passkey 的 options（rpID = 请求 host） |
+| POST       | `/register/verify`                                           | 校验注册响应，落库 `passkey_credentials`          |
+| POST       | `/authenticate/options`                                      | 免登录取断言 options（可带 `{username}`）         |
+| POST       | `/authenticate/verify`                                       | 校验断言，成功即建会话                            |
+| GET/DELETE | `/credentials`                                               | 查看 / 清除 passkey                               |
+| GET        | `/totp`、POST `/totp/setup`、`/totp/enable`、`/totp/disable` | TOTP 管理（disable 需再输密码）                   |
 
 登录失败锁定：`login_attempts` 表按 username+IP 计数，5 次失败锁定 15 分钟；`/2fa/verify` 对同一 tempToken 连续 5 次错误即作废。
 

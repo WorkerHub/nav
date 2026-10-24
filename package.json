@@ -14,7 +14,7 @@
     "build:web": "pnpm --filter web build",
     "build:worker": "pnpm --filter worker build",
     "test": "pnpm --filter worker test",
-    "deploy": "pnpm build:web && node scripts/deploy.mjs",
+    "deploy": "pnpm build:web && pnpm --filter worker deploy",
     "typecheck": "pnpm --filter web typecheck && pnpm --filter worker typecheck"
   },
   "devDependencies": {

@@ -80,6 +80,11 @@ CREATE TABLE IF NOT EXISTS {prefix}links (
   description TEXT,
   sort_order  INTEGER NOT NULL DEFAULT 0,
   visibility  TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
+  -- Reserved per SPEC §5, not implemented in v1: click counting and
+  -- private-service health status.
+  click_count     INTEGER NOT NULL DEFAULT 0,
+  status          TEXT,
+  last_checked_at TEXT,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );

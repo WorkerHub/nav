@@ -77,6 +77,12 @@ export interface Link {
   description: string | null;
   sort_order: number;
   visibility: "public" | "private";
+  /** Reserved per SPEC §5, not implemented in v1. */
+  click_count: number;
+  /** Reserved per SPEC §5, not implemented in v1. */
+  status: string | null;
+  /** Reserved per SPEC §5, not implemented in v1. */
+  last_checked_at: string | null;
   created_at: string;
   updated_at: string;
 }

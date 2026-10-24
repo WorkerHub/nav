@@ -9,6 +9,7 @@ import { authMiddleware } from "../middleware/auth";
 import {
   clearDefaultSearchEngines,
   deleteCategory,
+  deleteLinksByCategory,
   deleteLink,
   deleteSearchEngine,
   findCategory,
@@ -26,11 +27,8 @@ import {
 } from "../db/queries/content";
 import { getAllSettings, setSetting } from "../db/queries/settings";
 import { generateId } from "../core/auth";
-import {
-  toPublicLinkDto,
-  toSearchEngineDto,
-  toSiteSettingsDto,
-} from "../services/site-data";
+import type { Link } from "../types";
+import { toSearchEngineDto, toSiteSettingsDto } from "../services/site-data";
 
 export const adminRoutes = new Hono<HonoEnv>();
 
@@ -161,23 +159,33 @@ adminRoutes.delete("/categories/:id", async (c) => {
   const id = c.req.param("id");
   const existing = await findCategory(c.env.DB, prefix, id);
   if (!existing) return c.json({ error: "not found" }, 404);
+  await deleteLinksByCategory(c.env.DB, prefix, id);
   await deleteCategory(c.env.DB, prefix, id);
   return c.json({ success: true });
 });
 
 // ─── Links ───────────────────────────────────────────────────────────────────
 
+/** Admin link DTO: full row incl. visibility + timestamps (contract: docs/api-contract.md). */
+function adminLinkDto(link: Link) {
+  return {
+    id: link.id,
+    categoryId: link.category_id,
+    title: link.title,
+    url: link.url,
+    iconUrl: link.icon_url,
+    description: link.description,
+    sortOrder: link.sort_order,
+    visibility: link.visibility,
+    createdAt: link.created_at,
+    updatedAt: link.updated_at,
+  };
+}
+
 adminRoutes.get("/links", async (c) => {
   const prefix = getTablePrefix(c.env);
   const links = await listLinks(c.env.DB, prefix);
-  return c.json({
-    links: links.map((link) => ({
-      ...toPublicLinkDto(link),
-      visibility: link.visibility,
-      createdAt: link.created_at,
-      updatedAt: link.updated_at,
-    })),
-  });
+  return c.json({ links: links.map(adminLinkDto) });
 });
 
 adminRoutes.post("/links", async (c) => {
@@ -257,7 +265,7 @@ adminRoutes.put("/links/:id", async (c) => {
 
   await updateLink(c.env.DB, prefix, id, data);
   const updated = await findLink(c.env.DB, prefix, id);
-  return c.json(updated ? toPublicLinkDto(updated) : { id });
+  return c.json(updated ? adminLinkDto(updated) : { id });
 });
 
 adminRoutes.delete("/links/:id", async (c) => {

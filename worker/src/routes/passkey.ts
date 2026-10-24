@@ -15,6 +15,7 @@ import {
   putChallenge,
 } from "../core/challenges";
 import {
+  clearFailures,
   isLockedOut,
   recordAttempt,
   recordFailure,
@@ -282,6 +283,8 @@ webauthnRoutes.post("/authenticate/verify", async (c) => {
     success: true,
     lockUntil: null,
   });
+  // Clear stale failure counters so old failures can't contribute to a lockout.
+  await clearFailures(c.env.DB, prefix, username);
 
   const user = await findUserById(c.env.DB, prefix, stored.user_id);
   if (!user?.is_active) return c.json({ error: "account disabled" }, 403);

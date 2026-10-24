@@ -1,5 +1,7 @@
-// Minimal `.dev.vars` template for local `wrangler dev`.
-// Copy to `.dev.vars` (gitignored) and fill in real values — never commit them.
-// Production receives these as wrangler secrets (see .github/workflows/deploy.yml).
+# Minimal `.dev.vars` template for local `wrangler dev`.
+# Copy to `.dev.vars` (gitignored) and fill in real values — never commit them.
+# Production receives these as wrangler secrets (see .github/workflows/deploy.yml).
+# SESSION_SECRET: signs the nav_session cookie (HS256)
 SESSION_SECRET=replace-with-a-long-random-string
+# SETUP_SECRET: one-time token for creating the owner account
 SETUP_SECRET=replace-with-a-long-random-setup-token

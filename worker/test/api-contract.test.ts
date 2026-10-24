@@ -6,7 +6,22 @@ import { privateRoutes } from "../src/routes/private";
 import { adminRoutes } from "../src/routes/admin";
 import { authRoutes } from "../src/routes/auth";
 import type { Env } from "../src/types";
-import { makeEnv, type SqliteD1, readJson, jsonRequest } from "./helpers";
+import { makeEnv, type SqliteD1, readJson } from "./helpers";
+
+function setupRequest(app: Hono, env: Env): Promise<Response> {
+  return app.request(
+    "/api/auth/setup",
+    {
+      method: "POST",
+      body: JSON.stringify({ username: "owner", password: "password123" }),
+      headers: {
+        "content-type": "application/json",
+        "X-Setup-Secret": "test-setup-secret",
+      },
+    },
+    env,
+  );
+}
 
 function makeApp(): Hono {
   const app = new Hono();
@@ -237,6 +252,107 @@ describe("setup flow", () => {
 
     const state = await app.request("/api/auth/setup", {}, env);
     expect(await readJson(state)).toEqual({ enabled: false });
+  });
+
+  it("deleting a category removes its links (no orphans)", async () => {
+    const setupRes = await setupRequest(app, env);
+    const cookie = setupRes.headers.get("set-cookie") ?? "";
+
+    const cat = await app.request(
+      "/api/admin/categories",
+      {
+        method: "POST",
+        body: JSON.stringify({ name: "temp" }),
+        headers: { "content-type": "application/json", cookie },
+      },
+      env,
+    );
+    const { id: catId } = await readJson(cat);
+    await app.request(
+      "/api/admin/links",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "t",
+          url: "https://x.example.com",
+          categoryId: catId,
+        }),
+        headers: { "content-type": "application/json", cookie },
+      },
+      env,
+    );
+
+    const del = await app.request(
+      `/api/admin/categories/${catId}`,
+      { method: "DELETE", headers: { cookie } },
+      env,
+    );
+    expect(del.status).toBe(200);
+
+    const links = await app.request(
+      "/api/admin/links",
+      { headers: { cookie } },
+      env,
+    );
+    const body = await readJson(links);
+    expect(body.links).toHaveLength(0);
+  });
+
+  it("admin link DTO includes visibility and timestamps (frozen contract)", async () => {
+    const setupRes = await setupRequest(app, env);
+    const cookie = setupRes.headers.get("set-cookie") ?? "";
+
+    const cat = await app.request(
+      "/api/admin/categories",
+      {
+        method: "POST",
+        body: JSON.stringify({ name: "c" }),
+        headers: { "content-type": "application/json", cookie },
+      },
+      env,
+    );
+    const { id: catId } = await readJson(cat);
+    const link = await app.request(
+      "/api/admin/links",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "t",
+          url: "https://x.example.com",
+          categoryId: catId,
+          visibility: "private",
+        }),
+        headers: { "content-type": "application/json", cookie },
+      },
+      env,
+    );
+    const { id: linkId } = await readJson(link);
+
+    const updated = await app.request(
+      `/api/admin/links/${linkId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ title: "t2" }),
+        headers: { "content-type": "application/json", cookie },
+      },
+      env,
+    );
+    expect(updated.status).toBe(200);
+    const body = await readJson(updated);
+    expect(body.visibility).toBe("private");
+    expect(body.createdAt).toBeTruthy();
+    expect(body.updatedAt).toBeTruthy();
+  });
+
+  it("reserved SPEC §5 columns exist on links", async () => {
+    const db = (env.DB as unknown as SqliteD1).db;
+    const cols = db
+      .prepare("PRAGMA table_info(links)")
+      .all()
+      .map((r: any) => r.name);
+    expect(cols).toContain("click_count");
+    expect(cols).toContain("status");
+    expect(cols).toContain("last_checked_at");
   });
 
   it("has no registration endpoint", async () => {

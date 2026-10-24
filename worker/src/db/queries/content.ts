@@ -1,6 +1,35 @@
 import type { Category, Link, SearchEngine } from "../../types";
 import { nowIso } from "../sql";
 
+const CATEGORY_COLUMNS = ["name", "icon", "sort_order", "visibility"] as const;
+const LINK_COLUMNS = [
+  "category_id",
+  "title",
+  "url",
+  "icon_url",
+  "description",
+  "sort_order",
+  "visibility",
+] as const;
+const ENGINE_COLUMNS = [
+  "name",
+  "url_template",
+  "icon",
+  "sort_order",
+  "is_default",
+] as const;
+
+function assertColumns(
+  table: string,
+  data: Record<string, unknown>,
+  allowed: readonly string[],
+): void {
+  for (const key of Object.keys(data)) {
+    if (!allowed.includes(key))
+      throw new Error(`invalid column ${key} for ${table}`);
+  }
+}
+
 // ─── Categories ──────────────────────────────────────────────────────────────
 
 export async function listCategories(
@@ -66,6 +95,11 @@ export async function updateCategory(
     visibility: string;
   }>,
 ): Promise<void> {
+  assertColumns(
+    "updateCategory",
+    data as Record<string, unknown>,
+    CATEGORY_COLUMNS,
+  );
   const fields = Object.keys(data);
   if (fields.length === 0) return;
   const sets = fields.map((f) => `${f} = ?`);
@@ -164,6 +198,7 @@ export async function updateLink(
     visibility: string;
   }>,
 ): Promise<void> {
+  assertColumns("updateLink", data as Record<string, unknown>, LINK_COLUMNS);
   const fields = Object.keys(data);
   if (fields.length === 0) return;
   const sets = fields.map((f) => `${f} = ?`);
@@ -185,6 +220,21 @@ export async function deleteLink(
   id: string,
 ): Promise<void> {
   await db.prepare(`DELETE FROM ${prefix}links WHERE id = ?`).bind(id).run();
+}
+
+/**
+ * SQLite/D1 does not enforce FK constraints by default, so deleting a category
+ * must remove its links explicitly (no orphans).
+ */
+export async function deleteLinksByCategory(
+  db: D1Database,
+  prefix: string,
+  categoryId: string,
+): Promise<void> {
+  await db
+    .prepare(`DELETE FROM ${prefix}links WHERE category_id = ?`)
+    .bind(categoryId)
+    .run();
 }
 
 // ─── Search engines ──────────────────────────────────────────────────────────
@@ -255,6 +305,11 @@ export async function updateSearchEngine(
     is_default: number;
   }>,
 ): Promise<void> {
+  assertColumns(
+    "updateSearchEngine",
+    data as Record<string, unknown>,
+    ENGINE_COLUMNS,
+  );
   const fields = Object.keys(data);
   if (fields.length === 0) return;
   const sets = fields.map((f) => `${f} = ?`);
