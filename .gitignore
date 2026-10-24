@@ -7,3 +7,4 @@ worker/src/db/schema.generated.ts
 .dev.vars
 *.tsbuildinfo
 web/dist
+pr-body.md
