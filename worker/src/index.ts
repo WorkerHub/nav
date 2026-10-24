@@ -32,8 +32,11 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.use("*", async (c, next) => {
-  const prefix = c.env.TABLE_PREFIX || "";
-  if (prefix && !/^[a-zA-Z0-9_]+$/.test(prefix)) {
+  // Resolve the table prefix once so a malformed custom prefix fails fast
+  // with a clear error (SPEC v1.4: lowercase letters / digits / underscore).
+  try {
+    getTablePrefix(c.env);
+  } catch {
     return c.json({ error: "invalid TABLE_PREFIX configuration" }, 500);
   }
   await next();
@@ -71,11 +74,13 @@ app.get("/api/system/info", async (c) => {
     return c.json({
       app_name: settings ?? "nav",
       version: typeof APP_VERSION !== "undefined" ? APP_VERSION : "0.0.0",
+      tablePrefix: prefix,
     });
   } catch {
     return c.json({
       app_name: "nav",
       version: typeof APP_VERSION !== "undefined" ? APP_VERSION : "0.0.0",
+      tablePrefix: prefix,
     });
   }
 });

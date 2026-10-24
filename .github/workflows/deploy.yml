@@ -35,16 +35,25 @@ jobs:
         run: pnpm build:web
 
       # Secrets are written to a private temp file and passed to wrangler as a
-      # secrets file — they never appear in the repo, logs, or wrangler.toml.
-      - name: Materialize secrets
+      # secrets file, and wrangler.toml placeholders (account id, D1 database,
+      # TABLE_PREFIX) are resolved from organization variables — real values
+      # never appear in the repo, logs, or wrangler.toml.
+      - name: Materialize secrets + wrangler config
         env:
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           SETUP_SECRET: ${{ secrets.SETUP_SECRET }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_NAME: ${{ vars.D1_DATABASE_NAME }}
+          D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID }}
+          TABLE_PREFIX: ${{ vars.TABLE_PREFIX }}
         run: node scripts/materialize-secrets.mjs
 
+      # The worker `deploy` script runs `pnpm codegen` first: schema.generated.ts
+      # is generated from schema.sql and not committed, so it must be regenerated
+      # before every wrangler deploy.
       - name: Deploy Worker
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec wrangler deploy --secrets-file "$RUNNER_TEMP/secrets.json"
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm run deploy --secrets-file "$RUNNER_TEMP/secrets.json"

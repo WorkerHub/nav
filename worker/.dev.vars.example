@@ -5,3 +5,8 @@
 SESSION_SECRET=replace-with-a-long-random-string
 # SETUP_SECRET: one-time token for creating the owner account
 SETUP_SECRET=replace-with-a-long-random-setup-token
+# TABLE_PREFIX (optional): leave unset to use the project default "nav_";
+# "none" or empty for no prefix; otherwise a lowercase/digits/underscore
+# prefix (a trailing "_" is recommended). wrangler dev reads .dev.vars as env
+# vars, overriding any committed binding.
+# TABLE_PREFIX=nav_
