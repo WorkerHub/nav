@@ -19,7 +19,9 @@ binding = "DB"
 database_name = "D1_DATABASE_NAME_PLACEHOLDER"
 database_id = "D1_DATABASE_ID_PLACEHOLDER"
 
-[vars]
-TABLE_PREFIX = ""
-# Local dev only: wrangler dev picks these up from the shell environment;
-# production receives SESSION_SECRET / SETUP_SECRET as wrangler secrets.
+# No [vars] table is committed. TABLE_PREFIX is injected at deploy time by
+# scripts/materialize-secrets.mjs (three-state: unset/empty → "nav_",
+# "none" → "" for no-prefix, otherwise the value as-is). With no TABLE_PREFIX
+# binding, the Worker defaults to DEFAULT_TABLE_PREFIX = "nav_" (zero-config
+# isolation on a shared D1 database); set TABLE_PREFIX in .dev.vars to override
+# for local development.

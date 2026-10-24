@@ -4,10 +4,15 @@
  * wrangler.toml so they can never be committed.
  */
 /**
- * Wrangler `vars` (non-secret). Declared in wrangler.toml.
+ * Wrangler `vars` (non-secret). TABLE_PREFIX is injected at deploy time by
+ * scripts/materialize-secrets.mjs; no [vars] table is committed.
  */
 export interface Vars {
-  TABLE_PREFIX: string;
+  /**
+   * Table prefix (SPEC v1.4). Absent when unconfigured so the Worker falls
+   * back to DEFAULT_TABLE_PREFIX; "" means an explicit no-prefix.
+   */
+  TABLE_PREFIX?: string;
 }
 
 export interface Env {
@@ -17,8 +22,11 @@ export interface Env {
   /** Wrangler secret / local env var — never in wrangler.toml. */
   SETUP_SECRET: string;
   ASSETS: Fetcher;
-  /** Legacy-style table prefix kept for parity with eNotify/Zeta deployments. */
-  TABLE_PREFIX: string;
+  /**
+   * Table prefix (SPEC v1.4). Injected at deploy time; absent when
+   * unconfigured so the Worker defaults to DEFAULT_TABLE_PREFIX.
+   */
+  TABLE_PREFIX?: string;
 }
 
 export interface HonoEnv {
@@ -157,8 +165,32 @@ export interface JWTPayload {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+// ─── Table prefix (SPEC v1.4) ────────────────────────────────────────────────
+
+/** Project default table prefix — the only hard-coded prefix allowed. */
+export const DEFAULT_TABLE_PREFIX = "nav_";
+
+/** Lowercase letters / digits / underscore; a trailing "_" is recommended. */
+const TABLE_PREFIX_RE = /^[a-z0-9_]*$/;
+
+export function isValidTablePrefix(prefix: string): boolean {
+  return TABLE_PREFIX_RE.test(prefix);
+}
+
+/**
+ * Three-state table prefix resolution (SPEC v1.4):
+ * - undefined → DEFAULT_TABLE_PREFIX ("nav_") — shared-DB zero-config isolation
+ * - ""        → "" (explicit no-prefix; deployer accepts collision risk)
+ * - otherwise → validated custom prefix (throws when malformed)
+ */
 export function getTablePrefix(env: Env): string {
-  return env.TABLE_PREFIX || "";
+  const raw = env.TABLE_PREFIX;
+  if (raw === undefined) return DEFAULT_TABLE_PREFIX;
+  if (raw === "") return "";
+  if (!isValidTablePrefix(raw)) {
+    throw new Error(`invalid TABLE_PREFIX "${raw}": must match /^[a-z0-9_]*$/`);
+  }
+  return raw;
 }
 
 export const VALID_VISIBILITY = ["public", "private"] as const;

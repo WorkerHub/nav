@@ -27,16 +27,28 @@ pnpm lint && pnpm format:check
 ## 部署
 
 合并 `main` 后 GitHub Actions（`.github/workflows/deploy.yml`）自动部署 Cloudflare。
-需要在仓库 Secrets 配置（见 PR 说明，凭证不写入代码 / issue / 评论）：
+凭证不写入代码 / issue / 评论：
 
-| Secret                  | 用途                       |
-| ----------------------- | -------------------------- |
-| `CLOUDFLARE_API_TOKEN`  | wrangler 部署              |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户            |
-| `SESSION_SECRET`        | 会话签名密钥（≥16 位随机） |
-| `SETUP_SECRET`          | setup 初始化令牌           |
+**组织级（WorkerHub，已配置）**
 
-`worker/wrangler.toml` 中的 `CLOUDFLARE_ACCOUNT_ID_PLACEHOLDER`、`D1_DATABASE_ID_PLACEHOLDER` 需替换为实际值（或改用 wrangler 部署时的环境注入）。
+| 配置项                  | 类型     | 用途                     |
+| ----------------------- | -------- | ------------------------ |
+| `CLOUDFLARE_API_TOKEN`  | secret   | wrangler 部署            |
+| `CLOUDFLARE_ACCOUNT_ID` | variable | Cloudflare 账户          |
+| `D1_DATABASE_NAME`      | variable | 共享 D1 库名             |
+| `D1_DATABASE_ID`        | variable | 共享 D1 库 ID            |
+| `TABLE_PREFIX`          | variable | 可选：表前缀三态（见下） |
+
+**仓库级（项目私有）**
+
+| Secret           | 用途                       |
+| ---------------- | -------------------------- |
+| `SESSION_SECRET` | 会话签名密钥（≥16 位随机） |
+| `SETUP_SECRET`   | setup 初始化令牌           |
+
+`worker/wrangler.toml` 只保留占位符；部署时 `scripts/materialize-secrets.mjs` 从组织变量注入真实值（真实值不进 wrangler.toml）。
+
+表前缀三态（`TABLE_PREFIX`）：未配置 → 项目默认 `nav_`；`none`（或空）→ 无前缀；其他值 → 原样注入（小写字母/数字/下划线）。
 
 ## 初始化（setup）
 
