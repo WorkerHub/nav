@@ -1,0 +1,25 @@
+name = "nav"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "CLOUDFLARE_ACCOUNT_ID_PLACEHOLDER"
+# SESSION_SECRET / SETUP_SECRET are wrangler secrets (or local env vars for
+# `wrangler dev`) — never committed to this file.
+
+
+[define]
+APP_VERSION = "__APP_VERSION__"
+
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "D1_DATABASE_NAME_PLACEHOLDER"
+database_id = "D1_DATABASE_ID_PLACEHOLDER"
+
+[vars]
+TABLE_PREFIX = ""
+# Local dev only: wrangler dev picks these up from the shell environment;
+# production receives SESSION_SECRET / SETUP_SECRET as wrangler secrets.
