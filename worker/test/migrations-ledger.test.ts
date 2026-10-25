@@ -115,6 +115,23 @@ describe("ledgered migration runner", () => {
     ]);
   });
 
+  it("adopts an existing nav_* schema that predates the ledger", async () => {
+    // Simulates a nav v1 database: all business tables present, no ledger yet.
+    const env = makeEnv({ TABLE_PREFIX: "nav_" });
+    await runMigrations(env);
+    sqliteOf(env.DB).exec("DROP TABLE _nav_schema_migrations;");
+
+    const result = await runMigrations(env);
+    expect(result.prefix).toBe("nav_");
+    expect(result.migrations).toEqual([
+      { name: "schema_v1", status: "applied" },
+    ]);
+    expect(ledgerRows(env.DB, "nav_").map((row) => row.name)).toEqual([
+      "schema_v1",
+    ]);
+    expect(tableNames(env.DB)).toContain("_nav_schema_migrations");
+  });
+
   it("aborts instead of quietly switching to a different prefix", async () => {
     const env = makeEnv({ TABLE_PREFIX: "nav_" });
     await runMigrations(env);

@@ -14,8 +14,11 @@
 /**
  * Table prefix core: the effective prefix without its trailing underscore(s).
  * `nav_` → `nav`, `""` → `""` (no prefix). Case is preserved verbatim.
+ *
+ * Exported because the conflict probe compares table-derived prefix cores
+ * (`nav_passkey_credentials` → `nav`) against the configured prefix.
  */
-function prefixCore(prefix: string): string {
+export function prefixCore(prefix: string): string {
   return prefix.replace(/_+$/, "");
 }
 

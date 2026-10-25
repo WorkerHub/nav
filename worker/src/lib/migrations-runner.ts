@@ -9,6 +9,7 @@ import {
   createMigrationsTableSql,
   getMigrations,
   migrationsTable,
+  prefixCore,
   type Migration,
 } from "./migrations";
 
@@ -130,11 +131,11 @@ async function detectTablePrefixConflict(
     const ledgers = detectLedgerPrefixes(names);
     if (ledgers.length > 0) {
       return (
-        `the database already contains a schema ledger ` +
-        `(${ledgers.map((p) => `_${p}_schema_migrations`).join(", ")}), but ` +
-        `TABLE_PREFIX resolves to an empty string. Refusing to initialise an ` +
-        `unprefixed nav schema. Configure TABLE_PREFIX to the prefix of the ` +
-        `existing schema (e.g. TABLE_PREFIX=${ledgers[0]}_).`
+        `the database already contains schema ledgers ` +
+        `(${ledgers.map((p) => `_${p}_schema_migrations`).join(", ")}) — ` +
+        `these may belong to other projects sharing the database. Refusing to ` +
+        `initialise an unprefixed nav schema. Configure TABLE_PREFIX to nav's ` +
+        `dedicated prefix (e.g. TABLE_PREFIX=nav_).`
       );
     }
     if (prefixedNav.length > 0) {
@@ -159,9 +160,10 @@ async function detectTablePrefixConflict(
       `explicitly configure TABLE_PREFIX='' (or TABLE_PREFIX=none in CI).`
     );
   }
-  const others = prefixedNav.filter(
-    (detected) => detected !== prefix.toLowerCase(),
-  );
+  // Table-derived prefixes are cores (`nav_passkey_credentials` → `nav`), so
+  // compare against the configured prefix's core, not the raw wrapper value.
+  const targetCore = prefixCore(prefix).toLowerCase();
+  const others = prefixedNav.filter((detected) => detected !== targetCore);
   if (others.length > 0) {
     return (
       `the database already contains a nav schema under the prefix ` +
