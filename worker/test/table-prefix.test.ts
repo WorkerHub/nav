@@ -4,7 +4,7 @@ import {
   getTablePrefix,
   isValidTablePrefix,
 } from "../src/types";
-import { runMigrations } from "../src/lib/migrate";
+import { runMigrations } from "../src/lib/migrations-runner";
 import { makeEnv, type SqliteD1 } from "./helpers";
 
 describe("table prefix three-state (SPEC v1.4)", () => {

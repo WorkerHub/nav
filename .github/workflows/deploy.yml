@@ -48,9 +48,8 @@ jobs:
           TABLE_PREFIX: ${{ vars.TABLE_PREFIX }}
         run: node scripts/materialize-secrets.mjs
 
-      # The worker `deploy` script runs `pnpm codegen` first: schema.generated.ts
-      # is generated from schema.sql and not committed, so it must be regenerated
-      # before every wrangler deploy.
+      # Deploy Worker (schema migrations are applied by the Worker itself on
+      # setup / first read — see worker/src/lib/migrations-runner.ts).
       - name: Deploy Worker
         working-directory: worker
         env:

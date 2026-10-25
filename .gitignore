@@ -3,7 +3,6 @@ dist
 .wrangler
 *.local
 .DS_Store
-worker/src/db/schema.generated.ts
 .dev.vars
 *.tsbuildinfo
 web/dist

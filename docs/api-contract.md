@@ -61,14 +61,14 @@
 
 ## 鉴权（/api/auth/*）
 
-| 方法 | 路径                   | 说明                                                                                                                                                                                                |
-| ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET  | `/api/auth/setup`      | `{"enabled":true}` 表示可创建所有者                                                                                                                                                                 |
-| POST | `/api/auth/setup`      | header `X-Setup-Secret`；body `{username, password}`（password ≥ 8）→ 201 并下发会话；已有账号 → 403                                                                                                |
-| POST | `/api/auth/login`      | body `{username, password}` → `{success, user}`；若已启用 TOTP → `{requires2fa:true, tempToken}`；失败 401 `{"error":"invalid credentials","remainingAttempts":N}`；连续失败 5 次锁定 15 分钟 → 429 |
-| POST | `/api/auth/2fa/verify` | body `{tempToken, code}`（TOTP 6 位）→ 200 并下发会话；错误码 401                                                                                                                                   |
-| POST | `/api/auth/logout`     | 吊销当前会话                                                                                                                                                                                        |
-| GET  | `/api/auth/session`    | 会话探测：`{"authenticated":true,"userId":…}`；未登录 401 JSON                                                                                                                                      |
+| 方法 | 路径                   | 说明                                                                                                                                                                                                                         |
+| ---- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET  | `/api/auth/setup`      | `{"enabled":true}` 表示可创建所有者                                                                                                                                                                                          |
+| POST | `/api/auth/setup`      | header `X-Setup-Secret`；body `{username, password}`（password ≥ 8）→ 201 并下发会话，附 `tablePrefix` 与 `migrations:[{name,status}]`（账本迁移结果）；已有账号 → 403；表前缀冲突 → 409 `{"error":"table prefix conflict"}` |
+| POST | `/api/auth/login`      | body `{username, password}` → `{success, user}`；若已启用 TOTP → `{requires2fa:true, tempToken}`；失败 401 `{"error":"invalid credentials","remainingAttempts":N}`；连续失败 5 次锁定 15 分钟 → 429                          |
+| POST | `/api/auth/2fa/verify` | body `{tempToken, code}`（TOTP 6 位）→ 200 并下发会话；错误码 401                                                                                                                                                            |
+| POST | `/api/auth/logout`     | 吊销当前会话                                                                                                                                                                                                                 |
+| GET  | `/api/auth/session`    | 会话探测：`{"authenticated":true,"userId":…}`；未登录 401 JSON                                                                                                                                                               |
 
 Passkey（WebAuthn，/api/auth/passkey/*，@simplewebauthn/server v14）：
 

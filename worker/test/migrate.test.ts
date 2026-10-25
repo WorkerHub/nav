@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { runMigrations } from "../src/lib/migrate";
+import { runMigrations } from "../src/lib/migrations-runner";
 import { makeEnv, type SqliteD1 } from "./helpers";
 
 describe("D1 migration", () => {
   it("applies cleanly on an empty database", async () => {
     const env = makeEnv();
     const result = await runMigrations(env);
-    expect(result.applied).toBe(true);
+    expect(result.migrations).toEqual([
+      { name: "schema_v1", status: "applied" },
+    ]);
 
     const db = (env.DB as unknown as SqliteD1).db;
     const tables = db
@@ -34,8 +36,14 @@ describe("D1 migration", () => {
   it("is idempotent — can be re-run on an initialized database", async () => {
     const env = makeEnv();
     await runMigrations(env);
-    await expect(runMigrations(env)).resolves.toEqual({ applied: true });
-    await expect(runMigrations(env)).resolves.toEqual({ applied: true });
+    await expect(runMigrations(env)).resolves.toEqual({
+      prefix: "",
+      migrations: [{ name: "schema_v1", status: "skipped" }],
+    });
+    await expect(runMigrations(env)).resolves.toEqual({
+      prefix: "",
+      migrations: [{ name: "schema_v1", status: "skipped" }],
+    });
   });
 
   it("respects the table prefix", async () => {
@@ -49,6 +57,7 @@ describe("D1 migration", () => {
       .map((row: any) => row.name);
     expect(tables).toContain("nav_users");
     expect(tables).toContain("nav_links");
+    expect(tables).toContain("_nav_schema_migrations");
     expect(tables).not.toContain("users");
   });
 

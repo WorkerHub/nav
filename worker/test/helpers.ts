@@ -35,6 +35,14 @@ export class SqliteD1 {
       },
     };
   }
+
+  // D1Database.exec(): runs one or more semicolon-separated statements. Backed
+  // by node:sqlite's native exec, which accepts multi-statement SQL.
+  async exec(sql: string): Promise<{ count: number; duration: number }> {
+    this.queries.push(sql);
+    this.db.exec(sql);
+    return { count: 0, duration: 0 };
+  }
 }
 
 export function makeEnv(overrides: Partial<Env> = {}): Env {

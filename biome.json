@@ -8,8 +8,7 @@
       "!**/.wrangler",
       "!**/web/public",
       "!**/web/dist",
-      "!**/worker/.wrangler",
-      "!**/worker/src/db/schema.generated.ts"
+      "!**/worker/.wrangler"
     ]
   },
   "formatter": {

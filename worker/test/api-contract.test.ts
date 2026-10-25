@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
-import { runMigrations } from "../src/lib/migrate";
+import { runMigrations } from "../src/lib/migrations-runner";
 import { publicRoutes } from "../src/routes/public";
 import { privateRoutes } from "../src/routes/private";
 import { adminRoutes } from "../src/routes/admin";

@@ -3,12 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "codegen": "node scripts/gen-schema.mjs",
-    "dev": "pnpm codegen && wrangler dev",
-    "build": "pnpm codegen && tsc --noEmit",
-    "typecheck": "pnpm codegen && tsc --noEmit",
-    "test": "pnpm codegen && vitest run",
-    "deploy": "pnpm codegen && wrangler deploy"
+    "dev": "wrangler dev",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "deploy": "wrangler deploy"
   },
   "dependencies": {
     "@simplewebauthn/server": "^14.0.0",
