@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
-import { runMigrations } from "../src/lib/migrate";
+import { runMigrations } from "../src/lib/migrations-runner";
 import { authRoutes } from "../src/routes/auth";
 import { privateRoutes } from "../src/routes/private";
 import { adminRoutes } from "../src/routes/admin";
@@ -207,5 +207,32 @@ describe("authenticated access after login", () => {
       env,
     );
     expect(after.status).toBe(401);
+  });
+});
+
+describe("setup response (ledgered migrations)", () => {
+  it("reports the effective prefix and each migration result", async () => {
+    const env = makeEnv();
+    const app = makeApp();
+
+    const res = await setupRequest(app, env);
+    expect(res.status).toBe(201);
+    const body = await readJson(res);
+    expect(body.success).toBe(true);
+    expect(body.tablePrefix).toBe("");
+    expect(body.migrations).toEqual([{ name: "schema_v1", status: "applied" }]);
+  });
+
+  it("turns a table-prefix conflict into 409 instead of building a second schema", async () => {
+    const env = makeEnv({ TABLE_PREFIX: "nav_" });
+    const app = makeApp();
+    await runMigrations(env); // database already holds the nav_* schema
+
+    const conflicting: Env = { ...env, TABLE_PREFIX: "" };
+    const res = await setupRequest(app, conflicting);
+    expect(res.status).toBe(409);
+    const body = await readJson(res);
+    expect(body.error).toBe("table prefix conflict");
+    expect(body.detail).toContain("TABLE_PREFIX");
   });
 });

@@ -1,7 +1,11 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie } from "hono/cookie";
 import { getTablePrefix, type HonoEnv } from "../types";
-import { ensureSchema } from "../lib/migrate";
+import { applyMigrations } from "../lib/migrate";
+import {
+  TablePrefixConflictError,
+  type MigrationResult,
+} from "../lib/migrations-runner";
 import {
   generateId,
   generateToken,
@@ -67,8 +71,20 @@ authRoutes.post("/setup", async (c) => {
     return c.json({ error: "invalid TABLE_PREFIX configuration" }, 500);
   }
 
-  // Apply the idempotent schema (creates {prefix}* tables on first setup).
-  await ensureSchema(c.env);
+  // Apply the ledgered migrations (creates {prefix}* tables on first setup) and
+  // report each migration's outcome in the response.
+  let migrations: MigrationResult[];
+  try {
+    migrations = (await applyMigrations(c.env)).migrations;
+  } catch (err) {
+    if (err instanceof TablePrefixConflictError) {
+      return c.json(
+        { error: "table prefix conflict", detail: err.message },
+        409,
+      );
+    }
+    throw err;
+  }
 
   const users = await countUsers(c.env.DB, prefix);
   if (users > 0) return c.json({ error: "setup already completed" }, 403);
@@ -108,6 +124,10 @@ authRoutes.post("/setup", async (c) => {
       success: true,
       user: { id: created.id, username: created.username },
       tablePrefix: prefix,
+      migrations: migrations.map((migration) => ({
+        name: migration.name,
+        status: migration.status,
+      })),
     },
     201,
   );
