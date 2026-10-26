@@ -452,8 +452,11 @@ adminRoutes.put("/settings", async (c) => {
   }
   if (body.columns !== undefined) {
     const columns = Number.parseInt(String(body.columns), 10);
-    if (!Number.isFinite(columns) || columns < 1 || columns > 12)
-      return badRequest("columns must be between 1 and 12");
+    // 0 is a valid value: it means "unconfigured" (the GET DTO reports it
+    // since a fresh database has no columns row), so it must round-trip and is
+    // stored verbatim rather than coerced to a default.
+    if (!Number.isFinite(columns) || columns < 0 || columns > 12)
+      return badRequest("columns must be between 0 and 12");
     updates.columns = String(columns);
   }
 

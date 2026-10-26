@@ -113,7 +113,9 @@ Passkey（WebAuthn，/api/auth/passkey/*，@simplewebauthn/server v14）：
 ### 站点设置
 
 - `GET /api/admin/settings` → `{siteTitle, backgroundUrl, logoUrl, theme, columns}`
-- `PUT /api/admin/settings` body 可含 `{siteTitle, backgroundUrl, logoUrl, theme(light|dark|system), columns(1–12)}` → 更新后对象
+- `PUT /api/admin/settings` body 可含 `{siteTitle, backgroundUrl, logoUrl, theme(light|dark|system), columns(0–12)}` → 更新后对象
+
+`columns` 允许 `0–12`，其中 `0` 表示**未配置**（用默认值）：`0` 原样存入并原样返回，不会被替换成默认列数。`GET /api/admin/settings` 对未配置的库返回 `columns: 0`，所以 `0–12` 都能往返提交；超出范围返回 400 `columns must be between 0 and 12`。
 
 `backgroundUrl` / `logoUrl` 的值可以是外链 URL，也可以是本地上传路径（`/assets/…`，见下节）。`/assets/…` 被替换成**任何**其他值时，旧 R2 对象自动删除；外链旧值一律不删。
 
