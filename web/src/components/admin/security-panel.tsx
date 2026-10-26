@@ -115,6 +115,8 @@ export function SecurityPanel() {
   const [disableError, setDisableError] = React.useState<string | null>(null);
   const [password, setPassword] = React.useState("");
   const [confirmOpen, setConfirmOpen] = React.useState(false);
+  /** 移除全部 Passkey 的失败原因：就地挂在确认弹窗内（列表侧 Alert 会被遮罩挡住） */
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
 
   const loadTotp = React.useCallback(async () => {
     setBusy("totp-load");
@@ -229,14 +231,21 @@ export function SecurityPanel() {
 
   const removeAllPasskeys = async () => {
     setPasskeyBusy("delete");
-    setCredError(null);
+    setDeleteError(null);
     try {
       await deleteCredentials();
       setConfirmOpen(false);
+      setCredError(null);
       toast.success("已清除全部 Passkey");
       await loadCredentials();
     } catch (e) {
-      setCredError(describeError(e, "清除 Passkey 失败，请稍后重试。"));
+      // 失败时弹窗保持打开，原因写在弹窗内：底层卡片的 Alert 在模态遮罩下不可见，
+      // 用户只会看到 loading 停住而不知道为什么失败（Tony 评审 should-fix）。
+      setDeleteError(
+        e instanceof ApiError && e.status === 401
+          ? "会话已失效，请重新登录。"
+          : "清除 Passkey 失败，请稍后重试。",
+      );
     } finally {
       setPasskeyBusy(null);
     }
@@ -382,9 +391,12 @@ export function SecurityPanel() {
                       inputMode="numeric"
                       autoComplete="one-time-code"
                       placeholder="6 位数字"
-                      maxLength={6}
                       value={code}
-                      onChange={(e) => setCode(e.target.value)}
+                      onChange={(e) =>
+                        // 只留数字并截到 6 位：不设 maxLength，否则粘贴「1 2 3 4 5 6」
+                        // 会先被截成 6 个字符再过滤，剩下半个码
+                        setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                      }
                       required
                     />
                   </div>
@@ -490,6 +502,7 @@ export function SecurityPanel() {
               variant="destructive"
               onClick={() => {
                 setCredError(null);
+                setDeleteError(null);
                 setConfirmOpen(true);
               }}
               disabled={
@@ -575,7 +588,13 @@ export function SecurityPanel() {
       </Dialog>
 
       {/* 移除全部 Passkey：破坏性操作走 AlertDialog（不可撤销） */}
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          setConfirmOpen(open);
+          if (!open) setDeleteError(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>移除全部 Passkey？</AlertDialogTitle>
@@ -585,8 +604,20 @@ export function SecurityPanel() {
               的实现为整账号清除，不支持单条删除）。清除后这些设备不能再用于登录，且无法撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {deleteError && (
+            <Alert variant="destructive">
+              <AlertTitle>清除未完成</AlertTitle>
+              <AlertDescription className="break-words">
+                {deleteError}
+              </AlertDescription>
+            </Alert>
+          )}
+
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={passkeyBusy !== null} />
+            <AlertDialogCancel disabled={passkeyBusy !== null}>
+              取消
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive/10 text-destructive hover:bg-destructive/20"
               disabled={passkeyBusy !== null}

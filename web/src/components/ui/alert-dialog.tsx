@@ -1,6 +1,6 @@
-import * as React from "react";
 import { cn } from "cn";
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui";
+import type * as React from "react";
 
 import { buttonVariants } from "@/components/ui/button";
 
@@ -138,6 +138,7 @@ function AlertDialogAction({
 
 function AlertDialogCancel({
   className,
+  children,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Cancel>) {
   return (
@@ -145,7 +146,11 @@ function AlertDialogCancel({
       data-slot="alert-dialog-cancel"
       className={cn(buttonVariants({ variant: "outline" }), className)}
       {...props}
-    />
+    >
+      {/* 兜底文案：Cancel 不允许渲染成空按钮（无 Accessible Name，且 AlertDialog
+          会拦截 Esc/遮罩，空按钮等于把用户关在弹窗里） */}
+      {children ?? "取消"}
+    </AlertDialogPrimitive.Cancel>
   );
 }
 
