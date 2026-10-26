@@ -117,6 +117,50 @@ export type LoginResult =
   | { ok: true }
   | { requires2fa: true; tempToken: string };
 
+/** GET /api/auth/session 的响应（契约 docs/api-contract.md） */
+export interface SessionInfo {
+  authenticated: true;
+  userId: string;
+}
+
+/**
+ * GET /api/auth/session —— 会话探活（刷新后恢复登录态的唯一入口）。
+ *
+ * 未登录 / Cookie 失效时后端返回 401 JSON，这里抛 UnauthorizedError，与 getPrivate
+ * 的处理习惯一致；网络错误、超时与 5xx 抛 ApiError（status 0 表示请求未拿到响应），
+ * 由调用方决定降级为未登录而不是把界面卡在加载态。
+ */
+export async function getSession(timeoutMs = 8000): Promise<SessionInfo> {
+  if (USE_MOCK) {
+    const mock = await devMock();
+    if (!mock.isLoggedIn()) throw new UnauthorizedError();
+    return { authenticated: true, userId: "mock-user" };
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${API.auth}/session`, {
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (e) {
+    throw new ApiError(`session probe failed: ${(e as Error).message}`, 0);
+  }
+  if (res.status === 401) throw new UnauthorizedError();
+  if (!res.ok) {
+    let message = `${API.auth}/session failed: ${res.status}`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(message, res.status);
+  }
+  return (await res.json()) as SessionInfo;
+}
+
 /** POST /api/auth/login —— 第一步：username + password；启用 TOTP 时返回 requires2fa */
 export async function loginPassword(input: {
   username: string;
