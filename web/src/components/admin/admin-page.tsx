@@ -9,10 +9,11 @@ import {
   SearchEnginePanel,
   SettingsPanel,
 } from "@/components/admin/settings-panels";
+import { SystemPanel } from "@/components/admin/system-panel";
 import { useNavStore } from "@/lib/nav-store";
 
 /**
- * 后台（/admin）：分类 / 链接 / 搜索引擎 / 站点设置 CRUD + 导入导出，
+ * 后台（/admin）：分类 / 链接 / 搜索引擎 / 站点设置 CRUD + 导入导出 + 系统管理，
  * 列表用 dnd-kit 拖拽排序（含上移/下移键盘替代）。
  * 后台数据由 store（useNavStore.adminData）承载，本页只负责加载与分发。
  */
@@ -58,6 +59,7 @@ export function AdminPage({ onBack }: { onBack: () => void }) {
                 <TabsTrigger value="engines">搜索引擎</TabsTrigger>
                 <TabsTrigger value="settings">站点设置</TabsTrigger>
                 <TabsTrigger value="io">导入导出</TabsTrigger>
+                <TabsTrigger value="system">系统管理</TabsTrigger>
               </TabsList>
 
               <TabsContent value="categories" className="mt-6 max-w-2xl">
@@ -97,6 +99,10 @@ export function AdminPage({ onBack }: { onBack: () => void }) {
                   settings={settings}
                   onChanged={() => void loadAdmin()}
                 />
+              </TabsContent>
+
+              <TabsContent value="system" className="mt-6 max-w-2xl">
+                <SystemPanel />
               </TabsContent>
             </Tabs>
           ) : (

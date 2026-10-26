@@ -7,9 +7,13 @@
 import type {
   AdminCategory,
   AdminLink,
+  AdminSystem,
   PrivateData,
   PublicData,
   SearchEngine,
+  SetupOwnerResult,
+  SetupResult,
+  SetupState,
   SiteSettings,
   ImportCategory,
 } from "./types";
@@ -21,7 +25,12 @@ const API = {
   private: "/api/private",
   auth: "/api/auth",
   admin: "/api/admin",
+  setup: "/api/setup",
+  setupState: "/api/setup/state",
 };
+
+/** SETUP_SECRET 只走请求头（不进 URL、不进 localStorage、不打日志）。 */
+const SETUP_SECRET_HEADER = "X-Setup-Secret";
 
 /** 动态加载 dev mock（仅开发环境；生产构建死代码消除） */
 async function devMock() {
@@ -35,30 +44,35 @@ export class UnauthorizedError extends Error {
   }
 }
 
-class ApiError extends Error {
+/** HTTP 失败：`status` 供调用方分支（403/409/429），`detail` 为后端原文（如前缀冲突说明）。 */
+export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  detail?: string;
+  constructor(message: string, status: number, detail?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.detail = detail;
   }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
   if (!res.ok) {
     let message = `${path} failed: ${res.status}`;
+    let detail: string | undefined;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as { error?: string; detail?: string };
       if (body?.error) message = body.error;
+      if (typeof body?.detail === "string") detail = body.detail;
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, detail);
   }
   return (await res.json()) as T;
 }
@@ -366,6 +380,64 @@ export async function adminUpdateSettings(
     method: "PUT",
     body: JSON.stringify(input),
   });
+}
+
+// ─── Setup 三件套（/api/setup/*、/api/auth/setup、/api/admin/system*）─────────
+//
+// 这里刻意没有 dev mock：setup 走真实数据库迁移与密钥校验，mock 出来只会掩盖
+// 契约问题。开发时页面与系统管理区需连真实 worker（未连时显示错误态）。
+
+/** GET /api/setup/state —— 页面形态状态机入口（无鉴权、no-store） */
+export async function getSetupState(): Promise<SetupState> {
+  return request<SetupState>(API.setupState, { cache: "no-store" });
+}
+
+/** POST /api/setup —— 密钥升级（只跑账本迁移，不建号/不改密码/不删表） */
+export async function runSetupUpgrade(secret: string): Promise<SetupResult> {
+  return request<SetupResult>(API.setup, {
+    method: "POST",
+    headers: { [SETUP_SECRET_HEADER]: secret },
+    body: JSON.stringify({}),
+  });
+}
+
+/** POST /api/auth/setup —— 未初始化形态：迁移 + 建唯一所有者 + 签发会话 */
+export async function runOwnerSetup(input: {
+  secret: string;
+  username: string;
+  password: string;
+}): Promise<SetupOwnerResult> {
+  return request<SetupOwnerResult>(`${API.auth}/setup`, {
+    method: "POST",
+    headers: { [SETUP_SECRET_HEADER]: input.secret },
+    body: JSON.stringify({
+      username: input.username,
+      password: input.password,
+    }),
+  });
+}
+
+/** POST /api/admin/setup —— 管理面免密钥升级（需会话） */
+export async function adminRunSetup(): Promise<SetupResult> {
+  return request<SetupResult>(`${API.admin}/setup`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+/** GET /api/admin/system —— 生效前缀 + setup 页面开关 + 账本已记录迁移 */
+export async function adminGetSystem(): Promise<AdminSystem> {
+  return request<AdminSystem>(`${API.admin}/system`, { cache: "no-store" });
+}
+
+/** PUT /api/admin/system/setup-page —— 开关只门控页面，不门控密钥接口 */
+export async function adminSetSetupPage(
+  enabled: boolean,
+): Promise<{ setupPageEnabled: boolean }> {
+  return request<{ setupPageEnabled: boolean }>(
+    `${API.admin}/system/setup-page`,
+    { method: "PUT", body: JSON.stringify({ enabled }) },
+  );
 }
 
 // ─── 导入（前端解析 → 逐条经 admin CRUD 落库，契约无批量导入端点）──────────────
