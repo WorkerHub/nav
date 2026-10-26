@@ -13,7 +13,12 @@ import {
   type AdminData,
   type LoginResult,
 } from "@/lib/api";
-import type { PrivateData, PublicData, SearchEngine } from "@/lib/types";
+import type {
+  PrivateData,
+  PublicData,
+  SearchEngine,
+  SiteSettings,
+} from "@/lib/types";
 
 /**
  * 登录态三态：
@@ -58,6 +63,8 @@ interface NavState {
   bootstrapSession: () => Promise<void>;
   loadPublic: () => Promise<void>;
   loadAdmin: () => Promise<void>;
+  /** 设置保存成功后就地替换 adminData.settings（主题等站点级设置保存即生效） */
+  patchAdminSettings: (settings: SiteSettings) => void;
   loadPrivate: () => Promise<void>;
   /** 密码登录第一步；返回 requires2fa 时由调用方进入 TOTP 第二步 */
   loginWithPassword: (
@@ -200,6 +207,11 @@ export const useNavStore = create<NavState>((set, get) => ({
     const engines = get().publicData?.searchEngines ?? [];
     return engines.find((e) => e.isDefault) ?? engines[0] ?? null;
   },
+
+  // 后端 PUT /api/admin/settings 返回保存后的完整设置：直接落进 store，
+  // 让主题这类站点级设置「保存即生效」，不必等整轮 loadAdmin 重拉（重拉仍会兜底）。
+  patchAdminSettings: (settings) =>
+    set((s) => (s.adminData ? { adminData: { ...s.adminData, settings } } : s)),
 }));
 
 /** 组件里判「已登录」请用这个（单一真源 authStatus，避免出现与三态不一致的布尔字段）。 */
