@@ -114,6 +114,21 @@ Passkey（WebAuthn，/api/auth/passkey/*，@simplewebauthn/server v14）：
 - `GET /api/admin/settings` → `{siteTitle, backgroundUrl, theme, columns}`
 - `PUT /api/admin/settings` body 可含 `{siteTitle, backgroundUrl, theme(light|dark|system), columns(1–12)}` → 更新后对象
 
+`setup_page_enabled`（setup 页面开关）**不在**站点设置白名单内，也不出现在 `SiteSettingsDto` / `/api/public` 输出；它只走下面的系统管理端点。
+
+### 系统管理（`/api/admin/setup`、`/api/admin/system*`，需会话）
+
+- `POST /api/admin/setup` → 免密钥跑账本迁移，响应形状与 `POST /api/setup` 完全一致（含 409 冲突形状）
+- `GET /api/admin/system` → `{tablePrefix, setupPageEnabled, ledger}`（`ledger` 为账本已记录迁移名，按应用顺序）
+- `PUT /api/admin/system/setup-page` body `{enabled: boolean}`（严格布尔，非布尔 400 `{"error":"enabled must be a boolean"}`）→ `{setupPageEnabled}`
+
+## Setup（`/api/setup/*`）
+
+- `GET /api/setup/state` → 无鉴权，`Cache-Control: no-store`，`{enabled, ownerExists, tablePrefix}`；不含任何密钥/哈希。`ownerExists` = `{prefix}users` 行数 > 0（表不存在按 `false`）。`enabled`：未初始化恒 `true`；已初始化时只有 `{prefix}settings.setup_page_enabled = '1'` 为开，缺省（无此行）与 `'0'` 均为关。
+- `GET /api/setup/status` → 同一逻辑/同一载荷的兼容别名（SPA 已迁到 `state`）。
+- `POST /api/setup` → header `X-Setup-Secret`（只走请求头，无 GET/查询参数形态）；密钥缺失/占位符 → 500 `{"error":"server misconfigured"}`，不匹配 → 403；按来源 IP 每 10 分钟最多 3 次，超限 429（带 `Retry-After` 与 `retryAfterSeconds`）。动作只有账本迁移（不建用户、不改密码、不删表）：200 `{success, tablePrefix, migrations:[{name,status}], ownerExists}`，前缀冲突 409 `{"error":"table prefix conflict","detail":…}`。
+- setup 页面开关**只门控页面**，不门控 `POST /api/setup` 与 `POST /api/auth/setup`（密钥即门闩）。
+
 ## 说明
 
 - favicon 自动抓取不在后端做：前端直接请求目标站 / 公共 favicon 服务，失败回退首字圆；后端只存 `iconUrl` 字段。

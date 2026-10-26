@@ -236,6 +236,25 @@ export async function applyMigrationList(
 }
 
 /**
+ * Migration names already recorded in the ledger, in application order. Read-only
+ * and tolerant of a not-yet-created ledger table (returns an empty list), so the
+ * admin system panel can always render.
+ */
+export async function listRecordedMigrations(
+  db: D1Database,
+  prefix: string,
+): Promise<string[]> {
+  try {
+    const { results } = await db
+      .prepare(`SELECT name FROM ${migrationsTable(prefix)} ORDER BY rowid`)
+      .all<{ name: string }>();
+    return results.map((row) => row.name);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Resolves the effective prefix, guards against a silent prefix switch, then
  * applies every migration not yet recorded in the ledger. Throws
  * TablePrefixConflictError when the database already holds a nav schema under a

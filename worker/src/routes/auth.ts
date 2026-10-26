@@ -37,6 +37,7 @@ import {
   putChallenge,
 } from "../core/challenges";
 import { getSetting } from "../db/queries/settings";
+import { setSetupPageEnabled } from "../services/setup";
 import { verifyTOTP } from "../core/totp";
 import { SESSION_COOKIE, unauthorized } from "../middleware/auth";
 import { issueSession, clientIp } from "../services/session";
@@ -117,6 +118,11 @@ authRoutes.post("/setup", async (c) => {
 
   const created = await findUserByUsername(c.env.DB, prefix, username);
   if (!created) return c.json({ error: "setup failed" }, 500);
+
+  // SETUP-PAGE-SPEC §3.4: completion closes the setup page by default (nav is a
+  // single-user site). Routine upgrades go through the admin button; the secret
+  // endpoints themselves stay reachable regardless of this switch.
+  await setSetupPageEnabled(c.env, false, prefix);
 
   await issueSession(c, created.id);
   return c.json(

@@ -26,9 +26,15 @@ import {
   updateSearchEngine,
 } from "../db/queries/content";
 import { getAllSettings, setSetting } from "../db/queries/settings";
+import { listRecordedMigrations } from "../lib/migrations-runner";
 import { generateId } from "../core/auth";
 import type { Link } from "../types";
 import { toSearchEngineDto, toSiteSettingsDto } from "../services/site-data";
+import {
+  getSetupPageEnabled,
+  runSetupMigrations,
+  setSetupPageEnabled,
+} from "../services/setup";
 
 export const adminRoutes = new Hono<HonoEnv>();
 
@@ -443,6 +449,38 @@ adminRoutes.put("/settings", async (c) => {
 });
 
 adminRoutes.get("/settings/keys", (c) => c.json({ keys: SETTING_KEYS }));
+
+// ─── System: database maintenance + setup page switch (SPEC §3.5) ────────────
+
+/**
+ * POST /api/admin/setup — session-authenticated (no setup secret) upgrade.
+ * Payload and 409 conflict shape are identical to POST /api/setup.
+ */
+adminRoutes.post("/setup", async (c) => {
+  const outcome = await runSetupMigrations(c.env);
+  if (!outcome.ok) return c.json(outcome.body, outcome.status);
+  return c.json(outcome.body);
+});
+
+/** GET /api/admin/system — effective prefix, page switch, recorded ledger. */
+adminRoutes.get("/system", async (c) => {
+  const prefix = getTablePrefix(c.env);
+  const [ledger, setupPageEnabled] = await Promise.all([
+    listRecordedMigrations(c.env.DB, prefix),
+    getSetupPageEnabled(c.env, prefix),
+  ]);
+  return c.json({ tablePrefix: prefix, setupPageEnabled, ledger });
+});
+
+/** PUT /api/admin/system/setup-page — body `{enabled: boolean}` (strict). */
+adminRoutes.put("/system/setup-page", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (typeof body?.enabled !== "boolean")
+    return badRequest("enabled must be a boolean");
+
+  await setSetupPageEnabled(c.env, body.enabled);
+  return c.json({ setupPageEnabled: body.enabled });
+});
 
 // Fallbacks kept intentionally strict: unknown admin routes are 404 JSON.
 adminRoutes.all("*", (c) => c.json({ error: "not found" }, 404));
