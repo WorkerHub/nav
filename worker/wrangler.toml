@@ -19,6 +19,13 @@ binding = "DB"
 database_name = "D1_DATABASE_NAME_PLACEHOLDER"
 database_id = "D1_DATABASE_ID_PLACEHOLDER"
 
+# Uploaded images (ONE-444). Binding name is R2 — ASSETS is already taken by
+# Workers Static Assets above. Bucket name is not a secret; it is created by
+# the account owner, never by this Worker.
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "nav-assets"
+
 # No [vars] table is committed. TABLE_PREFIX is injected at deploy time by
 # scripts/materialize-secrets.mjs (three-state: unset/empty → "nav_",
 # "none" → "" for no-prefix, otherwise the value as-is). With no TABLE_PREFIX
