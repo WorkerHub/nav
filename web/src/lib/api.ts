@@ -28,6 +28,7 @@ const API = {
   private: "/api/private",
   auth: "/api/auth",
   admin: "/api/admin",
+  assets: "/api/admin/assets",
   setup: "/api/setup",
   setupState: "/api/setup/state",
 };
@@ -59,24 +60,26 @@ export class ApiError extends Error {
   }
 }
 
+async function toApiError(res: Response, path: string): Promise<ApiError> {
+  let message = `${path} failed: ${res.status}`;
+  let detail: string | undefined;
+  try {
+    const body = (await res.json()) as { error?: string; detail?: string };
+    if (body?.error) message = body.error;
+    if (typeof body?.detail === "string") detail = body.detail;
+  } catch {
+    /* non-JSON error body */
+  }
+  return new ApiError(message, res.status, detail);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
-  if (!res.ok) {
-    let message = `${path} failed: ${res.status}`;
-    let detail: string | undefined;
-    try {
-      const body = (await res.json()) as { error?: string; detail?: string };
-      if (body?.error) message = body.error;
-      if (typeof body?.detail === "string") detail = body.detail;
-    } catch {
-      /* non-JSON error body */
-    }
-    throw new ApiError(message, res.status, detail);
-  }
+  if (!res.ok) throw await toApiError(res, path);
   return (await res.json()) as T;
 }
 
@@ -555,6 +558,44 @@ export async function adminUpdateSettings(
   return request<SiteSettings>(`${API.admin}/settings`, {
     method: "PUT",
     body: JSON.stringify(input),
+  });
+}
+
+// ─── 资源上传（POST/DELETE /api/admin/assets）──────────────────────────────────
+
+/** 上传用途：背景图 / 站点 Logo / 图标（链接、分类、搜索引擎共用 icon）。 */
+export type AssetPurpose = "background" | "logo" | "icon";
+
+/**
+ * POST /api/admin/assets —— multipart `file` + `purpose`，返回 `{ path }`（`/assets/...`）。
+ *
+ * 刻意不走 `request` 助手：它强制 JSON Content-Type，而 multipart 必须让浏览器
+ * 自己带 boundary（手写 Content-Type 会让后端解析失败）。
+ * 错误一律透出后端 `error` 原文（类型 / 大小超限的说明由后端给）。
+ */
+export async function adminUploadAsset(
+  file: File,
+  purpose: AssetPurpose,
+): Promise<{ path: string }> {
+  if (USE_MOCK) return (await devMock()).uploadAsset(file, purpose);
+  const body = new FormData();
+  body.append("purpose", purpose);
+  body.append("file", file);
+  const res = await fetch(API.assets, {
+    method: "POST",
+    credentials: "include",
+    body,
+  });
+  if (!res.ok) throw await toApiError(res, API.assets);
+  return (await res.json()) as { path: string };
+}
+
+/** DELETE /api/admin/assets —— body `{ key }`，后端同时接受原始 key 与 `/assets/...` 路径。 */
+export async function adminDeleteAsset(key: string): Promise<void> {
+  if (USE_MOCK) return (await devMock()).deleteAsset(key);
+  await request(API.assets, {
+    method: "DELETE",
+    body: JSON.stringify({ key }),
   });
 }
 

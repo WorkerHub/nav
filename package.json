@@ -13,7 +13,7 @@
     "build": "pnpm --filter web build && pnpm --filter worker build",
     "build:web": "pnpm --filter web build",
     "build:worker": "pnpm --filter worker build",
-    "test": "pnpm --filter worker test",
+    "test": "pnpm --filter worker test && pnpm --filter web test",
     "deploy": "pnpm build:web && pnpm --filter worker deploy",
     "typecheck": "pnpm --filter web typecheck && pnpm --filter worker typecheck"
   },

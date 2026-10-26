@@ -107,10 +107,18 @@ export function PublicPage({ onOpenAdmin }: { onOpenAdmin: () => void }) {
       </header>
 
       <main className="mx-auto flex max-w-7xl flex-col gap-10 px-4 pb-20 sm:px-8">
-        {/* 搜索区 */}
+        {/* 搜索区：有 Logo 时头部换成 Logo 图，无则维持标题文字 */}
         <FadeIn className="pt-8 sm:pt-16">
           <h1 className="mb-6 text-center font-heading text-4xl font-semibold text-white drop-shadow">
-            {settings?.siteTitle ?? "我的导航"}
+            {settings?.logoUrl ? (
+              <img
+                src={settings.logoUrl}
+                alt={settings.siteTitle || "站点 Logo"}
+                className="mx-auto h-14 w-auto max-w-[240px] object-contain"
+              />
+            ) : (
+              (settings?.siteTitle ?? "我的导航")
+            )}
           </h1>
           {siteData && <SearchBar engines={siteData.searchEngines} />}
         </FadeIn>

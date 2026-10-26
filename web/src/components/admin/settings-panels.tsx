@@ -25,6 +25,12 @@ import {
   type SortableEntry,
 } from "@/components/admin/sortable-list";
 import {
+  AssetThumb,
+  AssetUploadField,
+  deleteReplacedAsset,
+  useAssetDraftCleanup,
+} from "@/components/admin/asset-upload";
+import {
   adminCreateEngine,
   adminDeleteEngine,
   adminImportCategories,
@@ -61,13 +67,16 @@ export function SearchEnginePanel({
   const [form, setForm] = React.useState({
     name: "",
     urlTemplate: "",
+    icon: "",
     isDefault: false,
   });
+  const draft = useAssetDraftCleanup();
 
   const openCreate = () => {
     setForm({
       name: "",
       urlTemplate: "https://example.com/search?q={q}",
+      icon: "",
       isDefault: false,
     });
     setEditingId(null);
@@ -80,20 +89,32 @@ export function SearchEnginePanel({
     setForm({
       name: e.name,
       urlTemplate: e.urlTemplate,
+      icon: e.icon ?? "",
       isDefault: e.isDefault,
     });
     setEditingId(id);
     setCreating(false);
   };
 
+  const close = () => {
+    void draft.discard();
+    setCreating(false);
+    setEditingId(null);
+  };
+
   const save = async () => {
+    const previousIcon = engines.find((e) => e.id === editingId)?.icon ?? null;
+    const payload = { ...form, icon: form.icon || null };
     if (editingId) {
-      await adminUpdateEngine(editingId, form);
+      await adminUpdateEngine(editingId, payload);
       toast.success("搜索引擎已更新");
     } else {
-      await adminCreateEngine(form);
+      await adminCreateEngine(payload);
       toast.success("搜索引擎已创建");
     }
+    draft.commit();
+    // 图标清旧由前端负责：新图标已落库，删掉被替换掉的旧 R2 对象
+    await deleteReplacedAsset(previousIcon, payload.icon);
     setCreating(false);
     setEditingId(null);
     onChanged();
@@ -118,7 +139,12 @@ export function SearchEnginePanel({
   const entries: SortableEntry[] = engines.map((e) => ({
     id: e.id,
     label: e.name,
-    meta: e.isDefault ? <Badge>默认</Badge> : null,
+    meta: (
+      <span className="flex items-center gap-2">
+        <AssetThumb src={e.icon} alt="" />
+        {e.isDefault ? <Badge>默认</Badge> : null}
+      </span>
+    ),
   }));
 
   return (
@@ -156,10 +182,7 @@ export function SearchEnginePanel({
       <Dialog
         open={creating || !!editingId}
         onOpenChange={(open) => {
-          if (!open) {
-            setCreating(false);
-            setEditingId(null);
-          }
+          if (!open) close();
         }}
       >
         <DialogContent>
@@ -187,6 +210,14 @@ export function SearchEnginePanel({
                 }
               />
             </div>
+            <AssetUploadField
+              id="eng-icon"
+              label="图标"
+              purpose="icon"
+              value={form.icon}
+              onChange={(icon) => setForm({ ...form, icon })}
+              onUploaded={draft.track}
+            />
             <div className="flex items-center justify-between">
               <Label htmlFor="eng-default">设为默认</Label>
               <Switch
@@ -214,10 +245,17 @@ export function SettingsPanel({
   onChanged: () => void;
 }) {
   // 直接用 store 传入的 settings 初始化；不再用 useEffect 同步 setState。
-  const [form, setForm] = React.useState<SiteSettings>(settings);
+  const [form, setForm] = React.useState<SiteSettings>({
+    ...settings,
+    logoUrl: settings.logoUrl ?? "",
+  });
 
   const save = async () => {
-    const saved = await adminUpdateSettings(form);
+    // 背景 / Logo 的旧 R2 对象由后端在 PUT /settings 时自动清旧，前端不再重复删。
+    const saved = await adminUpdateSettings({
+      ...form,
+      logoUrl: form.logoUrl ?? "",
+    });
     // 主题等站点级设置：用保存响应就地刷新 store，保存即生效（不必等 loadAdmin 重拉）
     useNavStore.getState().patchAdminSettings(saved);
     toast.success("设置已保存");
@@ -236,16 +274,20 @@ export function SettingsPanel({
             onChange={(e) => setForm({ ...form, siteTitle: e.target.value })}
           />
         </div>
-        <div className="grid gap-2">
-          <Label htmlFor="set-bg">背景图 URL</Label>
-          <Input
-            id="set-bg"
-            value={form.backgroundUrl ?? ""}
-            onChange={(e) =>
-              setForm({ ...form, backgroundUrl: e.target.value || "" })
-            }
-          />
-        </div>
+        <AssetUploadField
+          id="set-bg"
+          label="背景图"
+          purpose="background"
+          value={form.backgroundUrl ?? ""}
+          onChange={(backgroundUrl) => setForm({ ...form, backgroundUrl })}
+        />
+        <AssetUploadField
+          id="set-logo"
+          label="站点 Logo"
+          purpose="logo"
+          value={form.logoUrl ?? ""}
+          onChange={(logoUrl) => setForm({ ...form, logoUrl })}
+        />
         <div className="grid grid-cols-2 gap-4">
           <div className="grid gap-2">
             <Label htmlFor="set-cols">列数（1–12）</Label>
