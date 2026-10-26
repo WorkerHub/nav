@@ -80,6 +80,43 @@ export interface AdminLink {
   updatedAt: string;
 }
 
+// ─── setup 三件套（SETUP-PAGE-SPEC §3，对齐 worker types.ts）──────────────────
+
+/** `GET /api/setup/state`（及兼容别名 `status`）—— 不含任何密钥/哈希。 */
+export interface SetupState {
+  enabled: boolean;
+  ownerExists: boolean;
+  tablePrefix: string;
+}
+
+export interface SetupMigration {
+  name: string;
+  status: "applied" | "skipped" | "error";
+}
+
+/** `POST /api/setup` 与 `POST /api/admin/setup`（形状完全一致）。 */
+export interface SetupResult {
+  success: true;
+  tablePrefix: string;
+  migrations: SetupMigration[];
+  ownerExists: boolean;
+}
+
+/** `POST /api/auth/setup`（迁移 + 建唯一所有者 + 签发会话）。 */
+export interface SetupOwnerResult {
+  success: true;
+  user: { id: string; username: string };
+  tablePrefix: string;
+  migrations: SetupMigration[];
+}
+
+/** `GET /api/admin/system`。 */
+export interface AdminSystem {
+  tablePrefix: string;
+  setupPageEnabled: boolean;
+  ledger: string[];
+}
+
 // ─── 导入导出 ─────────────────────────────────────────────────────────────────
 
 export interface ImportLink {
