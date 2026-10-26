@@ -117,6 +117,28 @@ export interface AdminSystem {
   ledger: string[];
 }
 
+// ─── 两步验证（/api/auth/passkey/*，字段对齐 worker/src/routes/passkey.ts）──────
+
+/** `GET /api/auth/passkey/totp` —— 只回启用态，绝不回 secret。 */
+export interface TotpStatus {
+  enabled: boolean;
+}
+
+/** `POST /api/auth/passkey/totp/setup` —— 待确认的一次性密钥（仅存内存，不落盘不打日志）。 */
+export interface TotpSetup {
+  /** base32 密钥，供手动录入（等同凭据，不得写日志/评论/提交） */
+  secret: string;
+  /** `otpauth://` URI，仅用于生成二维码 */
+  uri: string;
+}
+
+/** `GET /api/auth/passkey/credentials` 单条凭据（后端只回 id / counter / createdAt）。 */
+export interface PasskeyCredential {
+  id: string;
+  counter: number;
+  createdAt: string;
+}
+
 // ─── 导入导出 ─────────────────────────────────────────────────────────────────
 
 export interface ImportLink {

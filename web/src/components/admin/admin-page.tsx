@@ -1,21 +1,24 @@
-import * as React from "react";
 import { ArrowLeft } from "lucide-react";
+import * as React from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CategoryPanel, LinkPanel } from "@/components/admin/crud-panels";
+import { SecurityPanel } from "@/components/admin/security-panel";
 import {
   ImportExportPanel,
   SearchEnginePanel,
   SettingsPanel,
 } from "@/components/admin/settings-panels";
 import { SystemPanel } from "@/components/admin/system-panel";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNavStore } from "@/lib/nav-store";
 
 /**
- * 后台（/admin）：分类 / 链接 / 搜索引擎 / 站点设置 CRUD + 导入导出 + 系统管理，
- * 列表用 dnd-kit 拖拽排序（含上移/下移键盘替代）。
- * 后台数据由 store（useNavStore.adminData）承载，本页只负责加载与分发。
+ * 后台（/admin）：分类 / 链接 / 搜索引擎 / 站点设置 CRUD + 导入导出 + 安全（两步验证）
+ * + 系统管理，列表用 dnd-kit 拖拽排序（含上移/下移键盘替代）。
+ * 后台数据由 store（useNavStore.adminData）承载，本页只负责加载与分发；
+ * 安全区的数据（2FA 状态、Passkey 凭据）属会话期敏感数据，由 SecurityPanel 自行拉取，
+ * 不进全局 store。
  */
 export function AdminPage({ onBack }: { onBack: () => void }) {
   const adminData = useNavStore((s) => s.adminData);
@@ -59,6 +62,7 @@ export function AdminPage({ onBack }: { onBack: () => void }) {
                 <TabsTrigger value="engines">搜索引擎</TabsTrigger>
                 <TabsTrigger value="settings">站点设置</TabsTrigger>
                 <TabsTrigger value="io">导入导出</TabsTrigger>
+                <TabsTrigger value="security">安全 / 两步验证</TabsTrigger>
                 <TabsTrigger value="system">系统管理</TabsTrigger>
               </TabsList>
 
@@ -99,6 +103,10 @@ export function AdminPage({ onBack }: { onBack: () => void }) {
                   settings={settings}
                   onChanged={() => void loadAdmin()}
                 />
+              </TabsContent>
+
+              <TabsContent value="security" className="mt-6 max-w-2xl">
+                <SecurityPanel />
               </TabsContent>
 
               <TabsContent value="system" className="mt-6 max-w-2xl">

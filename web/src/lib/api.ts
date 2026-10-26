@@ -8,6 +8,8 @@ import type {
   AdminCategory,
   AdminLink,
   AdminSystem,
+  ImportCategory,
+  PasskeyCredential,
   PrivateData,
   PublicData,
   SearchEngine,
@@ -15,7 +17,8 @@ import type {
   SetupResult,
   SetupState,
   SiteSettings,
-  ImportCategory,
+  TotpSetup,
+  TotpStatus,
 } from "./types";
 
 export const USE_MOCK = import.meta.env.DEV;
@@ -269,6 +272,134 @@ export async function loginPasskey(username?: string): Promise<void> {
       },
       clientExtensionResults: credential.getClientExtensionResults(),
     }),
+  });
+}
+
+// ─── 两步验证管理（同属 /api/auth/passkey/*，需登录会话）──────────────────────
+//
+// 这一组刻意没有 dev mock（与 setup 三件套同口径）：TOTP secret 与 Passkey 凭据
+// 是真实安全物，mock 出来的「已启用 / 已注册」只会在联调时骗人。开发时需连真实
+// worker；未连时管理面显示错误态而非假数据。
+
+export interface RegistrationOptionsJSON {
+  challenge: string;
+  rp: { id?: string; name: string };
+  user: { id: string; name: string; displayName: string };
+  pubKeyCredParams: { type: "public-key"; alg: number }[];
+  timeout?: number;
+  excludeCredentials?: { id: string; type: "public-key" }[];
+  authenticatorSelection?: AuthenticatorSelectionCriteria;
+  attestation?: AttestationConveyancePreference;
+}
+
+/**
+ * Passkey 注册：POST register/options → navigator.credentials.create → register/verify。
+ * WebAuthn 的 JSON ↔ 二进制转换沿用 loginPasskey 的现行手写模式（b64url ↔ ArrayBuffer），
+ * 不额外引入 @simplewebauthn/browser。
+ */
+export async function registerPasskey(): Promise<{ credentialId: string }> {
+  const options = await request<RegistrationOptionsJSON>(
+    `${API.auth}/passkey/register/options`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+
+  const publicKey: PublicKeyCredentialCreationOptions = {
+    challenge: b64urlToBuffer(options.challenge),
+    rp: { id: options.rp.id, name: options.rp.name },
+    user: {
+      id: b64urlToBuffer(options.user.id),
+      name: options.user.name,
+      displayName: options.user.displayName,
+    },
+    pubKeyCredParams: options.pubKeyCredParams,
+    timeout: options.timeout,
+    excludeCredentials: options.excludeCredentials?.map((c) => ({
+      id: b64urlToBuffer(c.id),
+      type: "public-key" as const,
+    })),
+    authenticatorSelection: options.authenticatorSelection,
+    attestation: options.attestation,
+  };
+
+  const credential = (await navigator.credentials.create({
+    publicKey,
+  })) as PublicKeyCredential | null;
+  if (!credential) throw new Error("passkey cancelled");
+
+  const attestation = credential.response as AuthenticatorAttestationResponse;
+  const transports = attestation.getTransports?.() ?? [];
+
+  return request<{ credentialId: string }>(
+    `${API.auth}/passkey/register/verify`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        id: credential.id,
+        rawId: bufferToB64url(credential.rawId),
+        type: credential.type,
+        response: {
+          clientDataJSON: bufferToB64url(attestation.clientDataJSON),
+          attestationObject: bufferToB64url(attestation.attestationObject),
+          ...(transports.length > 0 ? { transports } : {}),
+        },
+        clientExtensionResults: credential.getClientExtensionResults(),
+        ...(credential.authenticatorAttachment
+          ? { authenticatorAttachment: credential.authenticatorAttachment }
+          : {}),
+      }),
+    },
+  );
+}
+
+/** GET /api/auth/passkey/credentials —— 当前账号的 Passkey 凭据列表 */
+export async function listCredentials(): Promise<PasskeyCredential[]> {
+  const res = await request<{ credentials: PasskeyCredential[] }>(
+    `${API.auth}/passkey/credentials`,
+    { cache: "no-store" },
+  );
+  return res.credentials;
+}
+
+/**
+ * DELETE /api/auth/passkey/credentials ——
+ * 后端（worker/src/routes/passkey.ts）实现是「清除该账号全部 Passkey」，没有按 id
+ * 删除的端点，所以前端也没有单条删除入口（契约缺口已提在 ONE-447 评论）。
+ */
+export async function deleteCredentials(): Promise<void> {
+  await request(`${API.auth}/passkey/credentials`, { method: "DELETE" });
+}
+
+/** GET /api/auth/passkey/totp —— 只读启用态 */
+export async function getTotpStatus(): Promise<TotpStatus> {
+  return request<TotpStatus>(`${API.auth}/passkey/totp`, {
+    cache: "no-store",
+  });
+}
+
+/**
+ * POST /api/auth/passkey/totp/setup —— 取待确认的一次性 secret + otpauth URI。
+ * 返回值只在本次设置流程的内存/组件状态里用，不写 localStorage、不打日志。
+ */
+export async function totpSetup(): Promise<TotpSetup> {
+  return request<TotpSetup>(`${API.auth}/passkey/totp/setup`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+/** POST /api/auth/passkey/totp/enable —— 校验 6 位验证码并落地 secret */
+export async function totpEnable(code: string): Promise<void> {
+  await request(`${API.auth}/passkey/totp/enable`, {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+/** POST /api/auth/passkey/totp/disable —— 需再输一次账号密码（后端校验 403） */
+export async function totpDisable(password: string): Promise<void> {
+  await request(`${API.auth}/passkey/totp/disable`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
   });
 }
 
