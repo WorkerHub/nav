@@ -28,7 +28,7 @@ import {
   runOwnerSetup,
   runSetupUpgrade,
 } from "@/lib/api";
-import { useNavStore } from "@/lib/nav-store";
+import { useAuthenticated, useNavStore } from "@/lib/nav-store";
 import type { SetupOwnerResult, SetupResult, SetupState } from "@/lib/types";
 
 /**
@@ -77,7 +77,7 @@ export function SetupPage({
   onGoAdmin: () => void;
 }) {
   const [phase, setPhase] = React.useState<Phase>({ kind: "loading" });
-  const authenticated = useNavStore((s) => s.authenticated);
+  const authenticated = useAuthenticated();
   const setLoginPrompt = useNavStore((s) => s.setLoginPrompt);
 
   const refresh = React.useCallback(async () => {

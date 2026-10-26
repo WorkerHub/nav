@@ -5,24 +5,28 @@ import { CategoryAnchorBar, CategorySection } from "@/components/link-grid";
 import { LoginDialog } from "@/components/login-dialog";
 import { SearchBar } from "@/components/search-bar";
 import { Button } from "@/components/ui/button";
-import { useNavStore } from "@/lib/nav-store";
+import { useAuthenticated, useNavStore } from "@/lib/nav-store";
 
 /**
  * 公开页（/）：背景图 + 毛玻璃搜索框 + 锚点栏 + 「我的导航」图标网格 + 登录后的私有区。
  *
  * 安全口径：未登录时私有区完全不渲染 —— privateData 未加载时组件树里没有私有区块，
  * 数据请求也只发 /api/public（未登录不请求 /api/private）。
+ *
+ * 登录态是 store 里的三态（pending/authenticated/anonymous）：探活未回时登录区不渲染
+ * 任何按钮（不闪「登录」），探活通过后由 store 恢复登录并拉取私有区。
  */
 export function PublicPage({ onOpenAdmin }: { onOpenAdmin: () => void }) {
   const {
     publicData,
     privateData,
-    authenticated,
+    authStatus,
     loadPublic,
     loadPrivate,
     logout,
     setLoginPrompt,
   } = useNavStore();
+  const authenticated = useAuthenticated();
 
   React.useEffect(() => {
     void loadPublic();
@@ -35,7 +39,8 @@ export function PublicPage({ onOpenAdmin }: { onOpenAdmin: () => void }) {
 
   // 契约：/api/private 返回与 /api/public 同结构的全量数据（公开+私有）。
   // 登录后直接以 privateData.categories 作为全量列表，不再拼接 public/private。
-  const siteData = authenticated ? privateData : publicData;
+  // privateData 未回时先用 publicData 顶上，避免探活/登录后空白一帧。
+  const siteData = (authenticated && privateData) || publicData;
   const settings = siteData?.settings;
   const categories = siteData?.categories ?? [];
 
@@ -64,7 +69,7 @@ export function PublicPage({ onOpenAdmin }: { onOpenAdmin: () => void }) {
         <FadeIn className="mx-auto flex max-w-7xl items-center gap-3">
           <CategoryAnchorBar categories={categories} />
           <div className="ml-auto flex items-center gap-2">
-            {authenticated ? (
+            {authStatus === "pending" ? null : authenticated ? (
               <>
                 <Button
                   variant="ghost"
