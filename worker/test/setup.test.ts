@@ -410,6 +410,7 @@ describe("admin system endpoints", () => {
     expect(Object.keys(publicBody.settings).sort()).toEqual([
       "backgroundUrl",
       "columns",
+      "logoUrl",
       "siteTitle",
       "theme",
     ]);

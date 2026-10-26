@@ -42,6 +42,7 @@
   "settings": {
     "siteTitle": "nav",
     "backgroundUrl": "",
+    "logoUrl": "",
     "theme": "system",
     "columns": 0
   }
@@ -111,10 +112,29 @@ Passkey（WebAuthn，/api/auth/passkey/*，@simplewebauthn/server v14）：
 
 ### 站点设置
 
-- `GET /api/admin/settings` → `{siteTitle, backgroundUrl, theme, columns}`
-- `PUT /api/admin/settings` body 可含 `{siteTitle, backgroundUrl, theme(light|dark|system), columns(1–12)}` → 更新后对象
+- `GET /api/admin/settings` → `{siteTitle, backgroundUrl, logoUrl, theme, columns}`
+- `PUT /api/admin/settings` body 可含 `{siteTitle, backgroundUrl, logoUrl, theme(light|dark|system), columns(1–12)}` → 更新后对象
+
+`backgroundUrl` / `logoUrl` 的值可以是外链 URL，也可以是本地上传路径（`/assets/…`，见下节）。`/assets/…` 被替换成**任何**其他值时，旧 R2 对象自动删除；外链旧值一律不删。
 
 `setup_page_enabled`（setup 页面开关）**不在**站点设置白名单内，也不出现在 `SiteSettingsDto` / `/api/public` 输出；它只走下面的系统管理端点。
+
+### 资源（上传图片，ONE-444）
+
+上传对象存在 R2 桶 `nav-assets`（Worker 绑定名 `R2`；`ASSETS` 已被 Workers Static Assets 占用）。对象键 `assets/{purpose}/{uuid}.{ext}`，公开路径 `/assets/{key}`（因此实际形如 `/assets/assets/background/…`，为父单冻结的字面规则）。
+- `POST /api/admin/assets`（需会话，`multipart/form-data`）
+  - 字段：`file`（必填）、`purpose`（必填，`background` | `logo` | `icon`）。
+  - 双重校验：声明的 Content-Type 必须是 `image/png` / `image/jpeg` / `image/webp` / `image/gif` / `image/svg+xml` / `image/x-icon`（也接受 `image/vnd.microsoft.icon`）之一，**且**文件头魔数与之相符；SVG 无魔数，改为校验内容前缀（允许 BOM/空白后）为 `<?xml` 或 `<svg>`。扩展名由校验出的类型决定（png/jpg/webp/gif/svg/ico），不信任文件名。
+  - 大小：`background` ≤ 5MB；`logo`、`icon` ≤ 1MB。
+  - 201 `{ "path": "/assets/assets/{purpose}/{uuid}.{ext}" }`
+  - 400 `{"error":"…"}`：purpose 非法/缺失、缺 file、Content-Type 不支持、内容与声明不符、空文件；413 `{"error":"…"}`：超出该用途上限（文案含实际字节数与上限）。
+  - 环境未绑定 R2 → 503 `{"error":"asset storage unavailable: …"}`（不崩）。
+- `GET /assets/*`（公开读，无鉴权；`*` 即对象键）
+  - 200：正确 `Content-Type`；`Cache-Control: public, max-age=31536000, immutable`；`X-Content-Type-Options: nosniff`（SVG 固定 `image/svg+xml`，不会被当 HTML 解析）。
+  - 对象不存在或环境未绑定 R2 → 404。
+- `DELETE /api/admin/assets`（需会话）body `{ "key": "assets/{purpose}/{uuid}.{ext}" }`（也接受公开路径形式）→ `{ "success": true }`；缺 key → 400；未绑定 R2 → 503。
+
+自动清旧：`PUT /api/admin/settings` 中 `backgroundUrl` 或 `logoUrl` 从某个 `/assets/…` 值被替换成别的值（外链或新上传路径）时，旧 R2 对象被删除；旧值为外链时不删。
 
 ### 系统管理（`/api/admin/setup`、`/api/admin/system*`，需会话）
 

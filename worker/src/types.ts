@@ -23,6 +23,12 @@ export interface Env {
   SETUP_SECRET: string;
   ASSETS: Fetcher;
   /**
+   * R2 bucket `nav-assets` for uploaded images (binding name `R2` — `ASSETS`
+   * is already taken by Workers Static Assets). Absent in environments
+   * without the binding; handlers must degrade to 503/404 accordingly.
+   */
+  R2: R2Bucket;
+  /**
    * Table prefix (SPEC v1.4). Injected at deploy time; absent when
    * unconfigured so the Worker defaults to DEFAULT_TABLE_PREFIX.
    */
@@ -144,6 +150,8 @@ export interface SearchEngineDto {
 export interface SiteSettingsDto {
   siteTitle: string;
   backgroundUrl: string;
+  /** Local upload path (`/assets/…`) or an external URL; "" when unset. */
+  logoUrl: string;
   theme: string;
   columns: number;
 }

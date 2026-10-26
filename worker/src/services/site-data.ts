@@ -43,6 +43,7 @@ export function toSiteSettingsDto(
   return {
     siteTitle: settings.site_title ?? "nav",
     backgroundUrl: settings.background_url ?? "",
+    logoUrl: settings.logo_url ?? "",
     theme: settings.theme ?? "system",
     columns: Number.isFinite(columns) && columns > 0 ? columns : 0,
   };

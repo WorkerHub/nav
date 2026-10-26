@@ -7,6 +7,7 @@ import { publicRoutes } from "./routes/public";
 import { privateRoutes } from "./routes/private";
 import { adminRoutes } from "./routes/admin";
 import { setupRoutes } from "./routes/setup";
+import { assetPublicRoutes } from "./routes/assets";
 import { getSetting } from "./db/queries/settings";
 import { deleteExpiredSessions } from "./db/queries/users";
 
@@ -73,6 +74,10 @@ app.get("/api/system/info", async (c) => {
     });
   }
 });
+
+// Uploaded assets are served straight from R2. This MUST be registered before
+// the SPA fallback below, otherwise static assets would answer every request.
+app.route("/assets", assetPublicRoutes);
 
 // Static assets (Workers Static Assets binding), SPA fallback to index.html.
 app.get("*", async (c) => {

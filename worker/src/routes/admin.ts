@@ -30,6 +30,8 @@ import { listRecordedMigrations } from "../lib/migrations-runner";
 import { generateId } from "../core/auth";
 import type { Link } from "../types";
 import { toSearchEngineDto, toSiteSettingsDto } from "../services/site-data";
+import { deleteAssetByPublicPath } from "../services/assets";
+import { deleteAsset, uploadAsset } from "./assets";
 import {
   getSetupPageEnabled,
   runSetupMigrations,
@@ -408,6 +410,7 @@ adminRoutes.post("/search-engines/reorder", async (c) => {
 const SETTING_KEYS = [
   "site_title",
   "background_url",
+  "logo_url",
   "theme",
   "columns",
 ] as const;
@@ -422,11 +425,25 @@ adminRoutes.get("/settings", async (c) => {
 adminRoutes.put("/settings", async (c) => {
   const prefix = getTablePrefix(c.env);
   const body = await c.req.json().catch(() => ({}));
+  const previous = await getAllSettings(c.env.DB, prefix);
 
   const updates: Record<string, string> = {};
+  /** Local `/assets/…` values orphaned by this write (owner of the binding). */
+  const replacedAssets: string[] = [];
+
   if (body.siteTitle !== undefined) updates.site_title = String(body.siteTitle);
-  if (body.backgroundUrl !== undefined)
+  if (body.backgroundUrl !== undefined) {
     updates.background_url = String(body.backgroundUrl);
+    collectReplacedAsset(
+      previous.background_url,
+      updates.background_url,
+      replacedAssets,
+    );
+  }
+  if (body.logoUrl !== undefined) {
+    updates.logo_url = String(body.logoUrl);
+    collectReplacedAsset(previous.logo_url, updates.logo_url, replacedAssets);
+  }
   if (body.theme !== undefined) {
     const theme = String(body.theme);
     if (!["light", "dark", "system"].includes(theme))
@@ -444,11 +461,34 @@ adminRoutes.put("/settings", async (c) => {
     await setSetting(c.env.DB, prefix, key, value);
   }
 
+  // Auto-clean: a local upload that was just replaced is deleted from R2.
+  // External URLs never reach this list, and a missing binding is a no-op.
+  for (const publicPath of replacedAssets) {
+    await deleteAssetByPublicPath(c.env.R2, publicPath);
+  }
+
   const settings = await getAllSettings(c.env.DB, prefix);
   return c.json(toSiteSettingsDto(settings));
 });
 
+/** Queue the old value for deletion when a local upload is replaced by anything else. */
+function collectReplacedAsset(
+  previousValue: string | undefined,
+  nextValue: string,
+  into: string[],
+): void {
+  if (!previousValue || previousValue === nextValue) return;
+  if (previousValue.startsWith("/assets/")) into.push(previousValue);
+}
+
 adminRoutes.get("/settings/keys", (c) => c.json({ keys: SETTING_KEYS }));
+
+// ─── Assets (uploaded images in R2, SPEC ONE-444) ────────────────────────────
+
+// Both handlers sit inside adminRoutes, so authMiddleware already requires a
+// session. Must stay above the strict admin 404 fallback below.
+adminRoutes.post("/assets", uploadAsset);
+adminRoutes.delete("/assets", deleteAsset);
 
 // ─── System: database maintenance + setup page switch (SPEC §3.5) ────────────
 
