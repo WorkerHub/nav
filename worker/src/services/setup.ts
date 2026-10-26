@@ -99,6 +99,10 @@ export type SetupMigrationOutcome =
  * Runs ONLY the ledgered migrations (forward-only, idempotent): no user is
  * created, no password changed, no table dropped. Both setup endpoints share
  * this so their payloads and their 409 conflict shape stay identical.
+ *
+ * This is also the «检查并升级数据库» path, so it tops up the default search
+ * engines when that table is empty (ONE-446) — a no-op on any install that
+ * already has an engine.
  */
 export async function runSetupMigrations(
   env: Env,
@@ -107,7 +111,8 @@ export async function runSetupMigrations(
   let migrations: MigrationResult[];
 
   try {
-    migrations = (await applyMigrations(env)).migrations;
+    migrations = (await applyMigrations(env, { seedDefaults: true }))
+      .migrations;
   } catch (err) {
     if (err instanceof TablePrefixConflictError) {
       return {

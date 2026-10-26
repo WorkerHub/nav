@@ -73,10 +73,12 @@ authRoutes.post("/setup", async (c) => {
   }
 
   // Apply the ledgered migrations (creates {prefix}* tables on first setup) and
-  // report each migration's outcome in the response.
+  // report each migration's outcome in the response. This is the initialisation
+  // path, so it also ensures the default search engines exist (ONE-446).
   let migrations: MigrationResult[];
   try {
-    migrations = (await applyMigrations(c.env)).migrations;
+    migrations = (await applyMigrations(c.env, { seedDefaults: true }))
+      .migrations;
   } catch (err) {
     if (err instanceof TablePrefixConflictError) {
       return c.json(
