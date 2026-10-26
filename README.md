@@ -54,6 +54,13 @@ pnpm lint && pnpm format:check
 
 线上首次部署、库中无账号时开放 setup：`POST /api/auth/setup`（header `X-Setup-Secret`）创建唯一所有者账号，创建后 setup 永久关闭，不设注册接口。响应在 `{ success, user, tablePrefix }` 之外附 `migrations: [{ name, status }]`（`applied` / `skipped`）。
 
+数据库升级/初始化也可走 setup 三件套（SPEC SETUP-PAGE-SPEC v1.0）：
+- `GET /api/setup/state`（无鉴权，`no-store`）→ `{enabled, ownerExists, tablePrefix}`；`GET /api/setup/status` 为同逻辑兼容别名。
+- `POST /api/setup`（header `X-Setup-Secret`，按 IP 每 10 分钟 3 次）→ **只跑账本迁移**，不建用户/不改密码/不删表；响应 `{success, tablePrefix, migrations, ownerExists}`，前缀冲突 409。
+- `POST /api/admin/setup`（会话鉴权、免密钥）、`GET /api/admin/system`、`PUT /api/admin/system/setup-page`：管理面「系统管理」的升级按钮与 setup 页面开关。
+
+setup 页面开关存在 `{prefix}settings.setup_page_enabled`（`'1'` 开 / `'0'` 关，**默认关**：所有者创建成功即写入 `'0'`）：未初始化时页面恒开；开关只门控页面，不门控两个密钥接口本身（密钥即门闩，避免把自己锁在门外）。
+
 ## 数据库迁移账本（schema ledger）
 
 schema 的唯一可信源是 `worker/src/lib/migrations.ts` 的 `getMigrations(prefix)` 迁移列表，执行由 `worker/src/lib/migrations-runner.ts` 的 `runMigrations(env)` 完成（setup 路由与读路径 `ensureSchema` 共用同一个 runner）。原 `worker/src/db/schema.sql` + `gen-schema.mjs` codegen 已删除，不再有第二份 schema 定义。

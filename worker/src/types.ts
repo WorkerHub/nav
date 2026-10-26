@@ -154,6 +154,35 @@ export interface SiteDataDto {
   settings: SiteSettingsDto;
 }
 
+// ─── Setup DTOs (SETUP-PAGE-SPEC §3.1/§3.2/§3.5) ─────────────────────────────
+
+/** `GET /api/setup/state` (and its legacy `status` alias) — no secrets/hashes. */
+export interface SetupStateDto {
+  enabled: boolean;
+  ownerExists: boolean;
+  tablePrefix: string;
+}
+
+export interface SetupMigrationDto {
+  name: string;
+  status: "applied" | "skipped" | "error";
+}
+
+/** `POST /api/setup` and `POST /api/admin/setup` (identical shape). */
+export interface SetupResultDto {
+  success: true;
+  tablePrefix: string;
+  migrations: SetupMigrationDto[];
+  ownerExists: boolean;
+}
+
+/** `GET /api/admin/system`. */
+export interface AdminSystemDto {
+  tablePrefix: string;
+  setupPageEnabled: boolean;
+  ledger: string[];
+}
+
 export interface JWTPayload {
   typ: "access";
   sub: string;

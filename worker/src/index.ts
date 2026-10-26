@@ -6,8 +6,9 @@ import { webauthnRoutes } from "./routes/passkey";
 import { publicRoutes } from "./routes/public";
 import { privateRoutes } from "./routes/private";
 import { adminRoutes } from "./routes/admin";
+import { setupRoutes } from "./routes/setup";
 import { getSetting } from "./db/queries/settings";
-import { countUsers, deleteExpiredSessions } from "./db/queries/users";
+import { deleteExpiredSessions } from "./db/queries/users";
 
 const app = new Hono<HonoEnv>();
 
@@ -47,25 +48,13 @@ app.route("/api/auth/passkey", webauthnRoutes);
 app.route("/api/public", publicRoutes);
 app.route("/api/private", privateRoutes);
 app.route("/api/admin", adminRoutes);
+// Setup surface: GET /api/setup/state (canonical), GET /api/setup/status
+// (legacy alias), POST /api/setup (secret-gated upgrade — SETUP-PAGE-SPEC §3).
+app.route("/api", setupRoutes);
 
 app.get("/api/health", (c) =>
   c.json({ status: "ok", timestamp: new Date().toISOString() }),
 );
-
-/**
- * GET /api/setup/status — the one endpoint the SPA calls before rendering.
- * 200 { enabled: true } while the owner account does not exist yet.
- */
-app.get("/api/setup/status", async (c) => {
-  const prefix = getTablePrefix(c.env);
-  try {
-    const users = await countUsers(c.env.DB, prefix);
-    return c.json({ enabled: users === 0 });
-  } catch {
-    // Uninitialized DB: setup is open (migration runs on first setup call).
-    return c.json({ enabled: true });
-  }
-});
 
 app.get("/api/system/info", async (c) => {
   const prefix = getTablePrefix(c.env);
