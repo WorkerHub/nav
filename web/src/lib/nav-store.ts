@@ -32,8 +32,16 @@ let privateInFlight: Promise<void> | null = null;
 let sessionProbe: Promise<void> | null = null;
 
 /**
- * 全局状态（Zustand）：登录态、公开数据、私有数据。
- * 私有数据仅在会话有效后进入 store；未登录时 store 里没有私有区。
+ * 回落未登录（anonymous）时一并清掉的会话期数据：私有区与后台数据都属于会话数据。
+ * 进入 anonymous 的入口共 5 处，全部使用本常量，保证「anonymous ⇒ store 里没有任何会话数据」：
+ * bootstrapSession 401 / bootstrapSession 网络错误降级 / loadPrivate 401 /
+ * loadAdmin 401 / logout。新增入口时同样必须带上它（不得只清 privateData）。
+ */
+const NO_SESSION_DATA = { privateData: null, adminData: null } as const;
+
+/**
+ * 全局状态（Zustand）：登录态、公开数据、会话数据（私有区 + 后台数据）。
+ * 会话数据仅在会话有效后进入 store；回落到 anonymous 时一律清空（见 NO_SESSION_DATA）。
  */
 interface NavState {
   publicData: PublicData | null;
@@ -82,13 +90,17 @@ export const useNavStore = create<NavState>((set, get) => ({
         await get().loadPrivate();
       } catch (e) {
         if (e instanceof UnauthorizedError) {
-          // 无会话 / Cookie 失效：回落未登录
-          set({ authStatus: "anonymous", privateData: null });
+          // 无会话 / Cookie 失效：回落未登录（会话数据一并清掉）
+          set({ authStatus: "anonymous", ...NO_SESSION_DATA });
           return;
         }
         // 网络错误 / 超时 / 5xx：降级为未登录，避免卡在 pending；
         // 此时不自动弹登录框（可能是后端暂时不可用），用户可手动点「登录」重试。
-        set({ authStatus: "anonymous", error: (e as Error).message });
+        set({
+          authStatus: "anonymous",
+          ...NO_SESSION_DATA,
+          error: (e as Error).message,
+        });
       }
     })();
     return sessionProbe;
@@ -116,9 +128,9 @@ export const useNavStore = create<NavState>((set, get) => ({
         });
       } catch (e) {
         if (e instanceof UnauthorizedError) {
-          // 会话失效：私有数据清空，回落未登录并弹登录
+          // 会话失效：会话数据清空，回落未登录并弹登录
           set({
-            privateData: null,
+            ...NO_SESSION_DATA,
             authStatus: "anonymous",
             loginPromptOpen: true,
           });
@@ -156,7 +168,12 @@ export const useNavStore = create<NavState>((set, get) => ({
 
   logout: async () => {
     await apiLogout();
-    set({ authStatus: "anonymous", privateData: null, loginPromptOpen: false });
+    // 站内登出同样要清干净会话数据（私有区 + 后台数据），不能只清 privateData
+    set({
+      authStatus: "anonymous",
+      ...NO_SESSION_DATA,
+      loginPromptOpen: false,
+    });
   },
 
   setLoginPrompt: (open) => set({ loginPromptOpen: open }),
@@ -169,8 +186,7 @@ export const useNavStore = create<NavState>((set, get) => ({
       // 会话失效（401）：后台页回落到未登录态，由 App 的 #admin 关口弹登录
       if (e instanceof ApiError && e.status === 401) {
         set({
-          adminData: null,
-          privateData: null,
+          ...NO_SESSION_DATA,
           authStatus: "anonymous",
           loginPromptOpen: true,
         });

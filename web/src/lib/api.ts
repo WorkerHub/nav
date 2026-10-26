@@ -140,7 +140,8 @@ export async function getSession(timeoutMs = 8000): Promise<SessionInfo> {
   try {
     res = await fetch(`${API.auth}/session`, {
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      // GET 无请求体：只声明期望的响应类型（nit：不必带 Content-Type）
+      headers: { Accept: "application/json" },
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),
     });
