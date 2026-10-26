@@ -153,6 +153,7 @@ export interface SiteSettingsDto {
   /** Local upload path (`/assets/…`) or an external URL; "" when unset. */
   logoUrl: string;
   theme: string;
+  /** 0–12; 0 means "unconfigured" (the consumer applies its default). */
   columns: number;
 }
 

@@ -42,7 +42,7 @@ export interface SiteSettings {
   siteTitle: string;
   backgroundUrl: string;
   theme: "system" | "light" | "dark";
-  /** 1–12，0 表示未配置（用默认值） */
+  /** 0–12（后端接受并原样存储），0 表示未配置（用默认值） */
   columns: number;
 }
 
