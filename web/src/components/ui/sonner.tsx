@@ -1,6 +1,5 @@
 "use client";
 
-import { useTheme } from "next-themes";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 import {
   CircleCheckIcon,
@@ -9,13 +8,16 @@ import {
   OctagonXIcon,
   Loader2Icon,
 } from "lucide-react";
+import { useResolvedTheme } from "@/lib/theme";
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme();
+  // 主题来自站点设置（ThemeProvider 已解析成 light/dark）；站点数据未加载完时
+  // 交给 sonner 按系统外观走，等解析结果出来再传显式值。
+  const theme: ToasterProps["theme"] = useResolvedTheme() ?? "system";
 
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme={theme}
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,

@@ -40,6 +40,7 @@ import {
   parseBookmarksHtml,
   parseImportJson,
 } from "@/lib/bookmarks";
+import { useNavStore } from "@/lib/nav-store";
 import type {
   AdminCategory,
   AdminLink,
@@ -216,7 +217,9 @@ export function SettingsPanel({
   const [form, setForm] = React.useState<SiteSettings>(settings);
 
   const save = async () => {
-    await adminUpdateSettings(form);
+    const saved = await adminUpdateSettings(form);
+    // 主题等站点级设置：用保存响应就地刷新 store，保存即生效（不必等 loadAdmin 重拉）
+    useNavStore.getState().patchAdminSettings(saved);
     toast.success("设置已保存");
     onChanged();
   };
@@ -317,7 +320,12 @@ export function ImportExportPanel({
       await adminImportCategories(data.categories);
       if (data.searchEngines?.length)
         await adminImportEngines(data.searchEngines);
-      if (data.settings) await adminUpdateSettings(data.settings);
+      if (data.settings) {
+        // 导入的主题同样立即生效（store 就地刷新，ThemeProvider 跟 settings.theme 走）
+        useNavStore
+          .getState()
+          .patchAdminSettings(await adminUpdateSettings(data.settings));
+      }
       toast.success("JSON 已导入");
       onChanged();
     } catch (e) {
