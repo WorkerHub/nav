@@ -32,10 +32,20 @@ export function resolveTheme(
   return mode;
 }
 
-/** 站点数据里的主题档位；null = 站点数据尚未加载（此时不猜深浅色）。 */
+/**
+ * 站点数据里的主题档位；null = 站点数据尚未加载（此时不猜深浅色）。
+ *
+ * 优先级 adminData > privateData > publicData：后台刚写入的值最新；已登录刷新时
+ * `bootstrapSession` 先拉 /api/private，`loadPublic` 可能还没回，取 privateData 才不
+ * 会让私有界面先渲染、主题却解析不出来。
+ */
 export function useSiteThemeMode(): ThemeMode | null {
   return useNavStore(
-    (s) => s.adminData?.settings.theme ?? s.publicData?.settings.theme ?? null,
+    (s) =>
+      s.adminData?.settings.theme ??
+      s.privateData?.settings.theme ??
+      s.publicData?.settings.theme ??
+      null,
   );
 }
 

@@ -26,6 +26,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // system 档实时跟随系统外观（含用户在系统设置里切换、跨设备同步）
   React.useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
     const media = window.matchMedia(DARK_MEDIA_QUERY);
     const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
     setSystemDark(media.matches);

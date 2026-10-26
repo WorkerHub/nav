@@ -82,10 +82,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ─── 站点数据 ────────────────────────────────────────────────────────────────
 
-/** GET /api/public */
-export async function getPublic(): Promise<PublicData> {
+/** GET /api/public —— `cache` 仅用于「本地刚写新站点设置」时绕过它自己的 max-age=60 缓存 */
+export async function getPublic(cache?: RequestCache): Promise<PublicData> {
   if (USE_MOCK) return (await devMock()).getPublic();
-  return request<PublicData>(API.public);
+  return request<PublicData>(API.public, cache ? { cache } : undefined);
 }
 
 /** GET /api/private —— 未登录抛 UnauthorizedError（对应 401 JSON），响应 no-store */

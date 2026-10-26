@@ -35,6 +35,14 @@ export type AuthStatus = "pending" | "authenticated" | "anonymous";
 let privateInFlight: Promise<void> | null = null;
 /** 启动探活只做一次（StrictMode 双挂载 / 多次调用都复用同一个 Promise）。 */
 let sessionProbe: Promise<void> | null = null;
+/**
+ * 站点设置的「本地写新」版本号：patchAdminSettings 每次 +1。两个作用 ——
+ *  1. >0 时下一次 loadPublic 绕过 HTTP 缓存（后端 /api/public 是 `public, max-age=60`），
+ *     否则「后台改完设置 → 返回公开页」会命中旧缓存，标题/背景图/主题又跳回旧值；
+ *  2. >0 期间「写新之前发出、写新之后才回」的旧响应一律丢弃，不把新值盖回去。
+ * 拉到服务端最新值后复归 0。
+ */
+let settingsRevision = 0;
 
 /**
  * 回落未登录（anonymous）时一并清掉的会话期数据：私有区与后台数据都属于会话数据。
@@ -63,7 +71,7 @@ interface NavState {
   bootstrapSession: () => Promise<void>;
   loadPublic: () => Promise<void>;
   loadAdmin: () => Promise<void>;
-  /** 设置保存成功后就地替换 adminData.settings（主题等站点级设置保存即生效） */
+  /** 设置保存成功后就地刷新 store 里所有存活的 settings 切片（三片原子更新） */
   patchAdminSettings: (settings: SiteSettings) => void;
   loadPrivate: () => Promise<void>;
   /** 密码登录第一步；返回 requires2fa 时由调用方进入 TOTP 第二步 */
@@ -115,8 +123,15 @@ export const useNavStore = create<NavState>((set, get) => ({
 
   loadPublic: async () => {
     set({ loading: true, error: null });
+    // 快照当前版本：请求在飞时设置又被写新，这轮响应可能是旧值
+    const revision = settingsRevision;
     try {
-      const data = await getPublic();
+      const data = await getPublic(revision > 0 ? "no-store" : undefined);
+      if (revision !== settingsRevision) {
+        set({ loading: false });
+        return;
+      }
+      settingsRevision = 0;
       set({ publicData: data, loading: false });
     } catch (e) {
       set({ loading: false, error: (e as Error).message });
@@ -208,10 +223,21 @@ export const useNavStore = create<NavState>((set, get) => ({
     return engines.find((e) => e.isDefault) ?? engines[0] ?? null;
   },
 
-  // 后端 PUT /api/admin/settings 返回保存后的完整设置：直接落进 store，
-  // 让主题这类站点级设置「保存即生效」，不必等整轮 loadAdmin 重拉（重拉仍会兜底）。
-  patchAdminSettings: (settings) =>
-    set((s) => (s.adminData ? { adminData: { ...s.adminData, settings } } : s)),
+  // 后端 PUT /api/admin/settings 返回保存后的完整设置（权威响应）：原子刷新 store 里
+  // **所有存活**的 settings 切片，而不是只刷 adminData：
+  //  - publicData / privateData 是公开页真正消费的数据，只刷 adminData 会让「后台改站点
+  //    标题/背景图 → 返回公开页」仍是旧值，必须刷新才生效；
+  //  - 同一份 settings 也决定主题（settings.theme）：登出 / 401 失效会清空 adminData 与
+  //    privateData，若 publicData 还是旧值，`useSiteThemeMode` 回落时主题会瞬间跳回旧档。
+  // 未加载的切片保持原样（不凭空造数据）。新增 settings 写入口时同样必须走这里。
+  patchAdminSettings: (settings) => {
+    settingsRevision += 1;
+    set((s) => ({
+      ...(s.adminData ? { adminData: { ...s.adminData, settings } } : {}),
+      ...(s.publicData ? { publicData: { ...s.publicData, settings } } : {}),
+      ...(s.privateData ? { privateData: { ...s.privateData, settings } } : {}),
+    }));
+  },
 }));
 
 /** 组件里判「已登录」请用这个（单一真源 authStatus，避免出现与三态不一致的布尔字段）。 */
