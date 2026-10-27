@@ -20,7 +20,7 @@ function seed(settings: SiteSettings) {
   useNavStore.setState({
     publicData: { categories: [], searchEngines: [], settings },
     privateData: null,
-    authenticated: false,
+    authStatus: "anonymous",
     loginPromptOpen: false,
     loadPublic: async () => {},
     loadPrivate: async () => {},
