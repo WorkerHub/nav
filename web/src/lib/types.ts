@@ -41,6 +41,8 @@ export interface SearchEngine {
 export interface SiteSettings {
   siteTitle: string;
   backgroundUrl: string;
+  /** 站点 Logo 图片地址（外链 URL 或上传后的 `/assets/...` 路径，空串表示无） */
+  logoUrl: string;
   theme: "system" | "light" | "dark";
   /** 0–12（后端接受并原样存储），0 表示未配置（用默认值） */
   columns: number;

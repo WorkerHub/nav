@@ -24,6 +24,13 @@ import {
   type SortableEntry,
 } from "@/components/admin/sortable-list";
 import {
+  AssetThumb,
+  AssetUploadField,
+  deleteReplacedAsset,
+  useAssetDraftCleanup,
+} from "@/components/admin/asset-upload";
+import { SiteIcon } from "@/components/site-icon";
+import {
   adminCreateCategory,
   adminCreateLink,
   adminDeleteCategory,
@@ -46,10 +53,13 @@ export function CategoryPanel({
   const [editing, setEditing] = React.useState<AdminCategory | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [name, setName] = React.useState("");
+  const [icon, setIcon] = React.useState("");
   const [visibility, setVisibility] = React.useState<Visibility>("public");
+  const draft = useAssetDraftCleanup();
 
   const openCreate = () => {
     setName("");
+    setIcon("");
     setVisibility("public");
     setCreating(true);
   };
@@ -58,19 +68,31 @@ export function CategoryPanel({
     const c = categories.find((x) => x.id === id);
     if (!c) return;
     setName(c.name);
+    setIcon(c.icon ?? "");
     setVisibility(c.visibility);
     setEditing(c);
     setCreating(false);
   };
 
+  const close = () => {
+    void draft.discard();
+    setEditing(null);
+    setCreating(false);
+  };
+
   const save = async () => {
+    const previousIcon = editing?.icon ?? null;
+    const payload = { name, icon: icon || null, visibility };
     if (editing) {
-      await adminUpdateCategory(editing.id, { name, visibility });
+      await adminUpdateCategory(editing.id, payload);
       toast.success("分类已更新");
     } else {
-      await adminCreateCategory({ name, visibility });
+      await adminCreateCategory(payload);
       toast.success("分类已创建");
     }
+    draft.commit();
+    // 图标清旧由前端负责（后端只对 settings 的 background/logo 自动清旧）
+    await deleteReplacedAsset(previousIcon, payload.icon);
     setEditing(null);
     setCreating(false);
     onChanged();
@@ -91,9 +113,12 @@ export function CategoryPanel({
     id: c.id,
     label: c.name,
     meta: (
-      <Badge variant={c.visibility === "private" ? "default" : "secondary"}>
-        {c.visibility === "private" ? "私有" : "公开"}
-      </Badge>
+      <span className="flex items-center gap-2">
+        <AssetThumb src={c.icon} alt="" />
+        <Badge variant={c.visibility === "private" ? "default" : "secondary"}>
+          {c.visibility === "private" ? "私有" : "公开"}
+        </Badge>
+      </span>
     ),
   }));
 
@@ -114,10 +139,7 @@ export function CategoryPanel({
       <Dialog
         open={creating || !!editing}
         onOpenChange={(open) => {
-          if (!open) {
-            setCreating(false);
-            setEditing(null);
-          }
+          if (!open) close();
         }}
       >
         <DialogContent>
@@ -133,6 +155,14 @@ export function CategoryPanel({
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
+            <AssetUploadField
+              id="cat-icon"
+              label="分类图标"
+              purpose="icon"
+              value={icon}
+              onChange={setIcon}
+              onUploaded={draft.track}
+            />
             <div className="flex items-center justify-between">
               <Label htmlFor="cat-vis">私有分类</Label>
               <Switch
@@ -175,6 +205,7 @@ export function LinkPanel({
     description: "",
     visibility: "public" as Visibility,
   });
+  const draft = useAssetDraftCleanup();
 
   const openCreate = () => {
     setForm({
@@ -202,8 +233,15 @@ export function LinkPanel({
     setCreating(false);
   };
 
+  const close = () => {
+    void draft.discard();
+    setCreating(false);
+    setEditingId(null);
+  };
+
   const save = async () => {
     if (!category) return;
+    const previousIcon = links.find((l) => l.id === editingId)?.iconUrl ?? null;
     const payload = {
       title: form.title,
       url: form.url,
@@ -218,6 +256,9 @@ export function LinkPanel({
       await adminCreateLink({ ...payload, categoryId: category.id });
       toast.success("链接已创建");
     }
+    draft.commit();
+    // 图标清旧由前端负责（后端只对 settings 的 background/logo 自动清旧）
+    await deleteReplacedAsset(previousIcon, payload.iconUrl);
     setCreating(false);
     setEditingId(null);
     onChanged();
@@ -275,11 +316,19 @@ export function LinkPanel({
             id: l.id,
             label: l.title,
             meta: (
-              <Badge
-                variant={l.visibility === "private" ? "default" : "secondary"}
-              >
-                {l.visibility === "private" ? "私有" : "公开"}
-              </Badge>
+              <span className="flex items-center gap-2">
+                <SiteIcon
+                  title={l.title}
+                  url={l.url}
+                  iconUrl={l.iconUrl}
+                  size={20}
+                />
+                <Badge
+                  variant={l.visibility === "private" ? "default" : "secondary"}
+                >
+                  {l.visibility === "private" ? "私有" : "公开"}
+                </Badge>
+              </span>
             ),
           }))}
           onReorder={reorder}
@@ -295,10 +344,7 @@ export function LinkPanel({
       <Dialog
         open={creating || !!editingId}
         onOpenChange={(open) => {
-          if (!open) {
-            setCreating(false);
-            setEditingId(null);
-          }
+          if (!open) close();
         }}
       >
         <DialogContent>
@@ -322,16 +368,15 @@ export function LinkPanel({
                 onChange={(e) => setForm({ ...form, url: e.target.value })}
               />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="link-icon">
-                iconUrl（可空，空则自动抓 favicon）
-              </Label>
-              <Input
-                id="link-icon"
-                value={form.iconUrl}
-                onChange={(e) => setForm({ ...form, iconUrl: e.target.value })}
-              />
-            </div>
+            <AssetUploadField
+              id="link-icon"
+              label="链接图标"
+              purpose="icon"
+              value={form.iconUrl}
+              onChange={(iconUrl) => setForm({ ...form, iconUrl })}
+              onUploaded={draft.track}
+              hint="支持 PNG / JPEG / WebP / GIF / SVG / ICO，≤ 1MB；留空则自动抓 favicon"
+            />
             <div className="grid gap-2">
               <Label htmlFor="link-desc">描述</Label>
               <Input

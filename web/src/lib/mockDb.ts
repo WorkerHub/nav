@@ -148,6 +148,7 @@ function seed(): MockState {
       siteTitle: "我的导航",
       backgroundUrl:
         "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=2400&q=80",
+      logoUrl: "",
       theme: "system",
       columns: 8,
     },
@@ -429,6 +430,24 @@ export const mockDb = {
     state.settings = { ...state.settings, ...input };
     persist(state);
     return state.settings;
+  },
+
+  /**
+   * 上传资源（mock）：**不做任何真实上传**，只回一个明确标注 `mock-` 的占位路径，
+   * 让上传后的回填/预览交互在 vite dev 里可点。真实链路（校验、大小限制、R2 落盘）
+   * 必须用 `pnpm build:web` + `wrangler dev`（R2 本地模拟）验证。
+   */
+  async uploadAsset(
+    file: File,
+    purpose: "background" | "logo" | "icon",
+  ): Promise<{ path: string }> {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+    return { path: `/assets/mock-${purpose}/${uid()}.${ext}` };
+  },
+
+  /** 删除资源（mock）：无对象可删，仅回成功（真实删除走 worker + R2）。 */
+  async deleteAsset(_key: string): Promise<void> {
+    return;
   },
 
   async importCategories(
