@@ -78,6 +78,8 @@ export function SetupPage({
 }) {
   const [phase, setPhase] = React.useState<Phase>({ kind: "loading" });
   const authenticated = useAuthenticated();
+  // 三态登录态本身也要用：下面「登录后补取一次」判的是切换，不是布尔值
+  const authStatus = useNavStore((s) => s.authStatus);
   const setLoginPrompt = useNavStore((s) => s.setLoginPrompt);
 
   const refresh = React.useCallback(async () => {
@@ -95,9 +97,21 @@ export function SetupPage({
 
   // 登录后重新取一次状态：所有者刚在管理面开启页面时，这里会立刻翻到已初始化形态。
   // 仅在 disabled 形态下触发 —— 未初始化形态建号成功后会保留迁移结果，不被刷新覆盖。
+  //
+  // 触发条件是「未登录 → 已登录」这一次切换（anonymous → authenticated），不是
+  // 「已登录且 disabled」这个状态：refresh() 先把形态置回 loading、请求回来又落回
+  // disabled，若只按状态判断，disabled→loading→disabled 的往返会随 phase.kind 在
+  // 依赖数组里无限重触发本 effect（登录态下 /setup 永远转圈的旧 bug）。切换只成立一次，
+  // 因此本 effect 每次登录最多补取一次，有界。
+  // 刷新恢复会话走的是 pending → authenticated，首次取状态已反映该登录态，不重复取。
+  const prevAuthStatus = React.useRef(authStatus);
   React.useEffect(() => {
-    if (authenticated && phase.kind === "disabled") void refresh();
-  }, [authenticated, phase.kind, refresh]);
+    const prev = prevAuthStatus.current;
+    prevAuthStatus.current = authStatus;
+    if (prev !== "anonymous" || authStatus !== "authenticated") return;
+    if (phase.kind !== "disabled") return;
+    void refresh();
+  }, [authStatus, phase.kind, refresh]);
 
   // 未初始化形态建号成功后会话已签发：把 store 的私有数据/登录态同步过来，
   // 「进入管理面」即可直接进后台（不另造登录逻辑）。
