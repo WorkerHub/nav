@@ -46,6 +46,8 @@ export function toSiteSettingsDto(
     logoUrl: settings.logo_url ?? "",
     theme: settings.theme ?? "system",
     columns: Number.isFinite(columns) && columns > 0 ? columns : 0,
+    // 存量库没有该键时按默认「开」：搜索在新标签页打开，起始页不被顶掉。
+    searchNewTab: (settings.search_new_tab ?? "1") === "1",
   };
 }
 

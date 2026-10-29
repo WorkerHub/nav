@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { runMigrations } from "../src/lib/migrations-runner";
 import { authRoutes } from "../src/routes/auth";
 import { adminRoutes } from "../src/routes/admin";
+import { publicRoutes } from "../src/routes/public";
 import type { Env } from "../src/types";
 import { makeEnv, readJson, type SqliteD1 } from "./helpers";
 
@@ -20,6 +21,7 @@ function makeApp(): Hono {
   const app = new Hono();
   app.route("/api/auth", authRoutes);
   app.route("/api/admin", adminRoutes);
+  app.route("/api/public", publicRoutes);
   return app;
 }
 
@@ -63,9 +65,14 @@ function putSettings(
 
 /** Raw stored value of the `columns` setting row, or `null` when absent. */
 function storedColumns(env: Env): string | null {
+  return storedSetting(env, "columns");
+}
+
+/** Raw stored value of an arbitrary settings row, or `null` when absent. */
+function storedSetting(env: Env, key: string): string | null {
   const row = (env.DB as unknown as SqliteD1).db
-    .prepare("SELECT value FROM settings WHERE key = 'columns'")
-    .get() as { value: string } | undefined;
+    .prepare("SELECT value FROM settings WHERE key = ?")
+    .get(key) as { value: string } | undefined;
   return row?.value ?? null;
 }
 
@@ -144,5 +151,76 @@ describe("PUT /api/admin/settings columns", () => {
         error: "columns must be between 0 and 12",
       });
     }
+  });
+});
+
+/**
+ * `searchNewTab`（搜索在新标签页打开）：KV 键 `search_new_tab`，值 `"1"`/`"0"`。
+ * 存量库无此键时 DTO 按 `true`（默认开）返回；公开端点同样带出该字段给前端。
+ */
+describe("settings searchNewTab (search_new_tab)", () => {
+  let env: Env;
+  let app: Hono;
+  let cookie: string;
+
+  beforeEach(async () => {
+    env = makeEnv();
+    app = makeApp();
+    await runMigrations(env);
+    cookie = await signIn(app, env);
+  });
+
+  it("defaults to true when the key is absent (admin + public DTO)", async () => {
+    expect(storedSetting(env, "search_new_tab")).toBeNull();
+
+    const admin = await readJson(await getSettings(app, env, cookie));
+    expect(admin.searchNewTab).toBe(true);
+
+    const pub = await readJson(await app.request("/api/public", {}, env));
+    expect(pub.settings.searchNewTab).toBe(true);
+  });
+
+  it('round-trips false/true as "0"/"1" and mirrors into /api/public', async () => {
+    let res = await putSettings(app, env, cookie, { searchNewTab: false });
+    expect(res.status).toBe(200);
+    expect((await readJson(res)).searchNewTab).toBe(false);
+    expect(storedSetting(env, "search_new_tab")).toBe("0");
+    expect(
+      (await readJson(await app.request("/api/public", {}, env))).settings
+        .searchNewTab,
+    ).toBe(false);
+
+    res = await putSettings(app, env, cookie, { searchNewTab: true });
+    expect((await readJson(res)).searchNewTab).toBe(true);
+    expect(storedSetting(env, "search_new_tab")).toBe("1");
+  });
+
+  it("keeps the stored value when other settings are written", async () => {
+    await putSettings(app, env, cookie, { searchNewTab: false });
+    const res = await putSettings(app, env, cookie, { siteTitle: "nav2" });
+    const body = await readJson(res);
+    expect(body.siteTitle).toBe("nav2");
+    expect(body.searchNewTab).toBe(false);
+  });
+
+  it("rejects non-boolean values with 400 and keeps the stored value", async () => {
+    await putSettings(app, env, cookie, { searchNewTab: true });
+    for (const searchNewTab of ["0", 1, 0, null, "true"]) {
+      const res = await putSettings(app, env, cookie, { searchNewTab });
+      expect(res.status).toBe(400);
+      expect(await readJson(res)).toEqual({
+        error: "searchNewTab must be a boolean",
+      });
+    }
+    expect(storedSetting(env, "search_new_tab")).toBe("1");
+  });
+
+  it("lists search_new_tab in the settings whitelist", async () => {
+    const res = await app.request(
+      "/api/admin/settings/keys",
+      { headers: { cookie } },
+      env,
+    );
+    expect((await readJson(res)).keys).toContain("search_new_tab");
   });
 });

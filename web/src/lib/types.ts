@@ -46,6 +46,8 @@ export interface SiteSettings {
   theme: "system" | "light" | "dark";
   /** 0–12（后端接受并原样存储），0 表示未配置（用默认值） */
   columns: number;
+  /** 搜索在新标签页打开（后端 KV `search_new_tab`，无此键时为 true） */
+  searchNewTab: boolean;
 }
 
 export interface SiteData {

@@ -248,6 +248,8 @@ export function SettingsPanel({
   const [form, setForm] = React.useState<SiteSettings>({
     ...settings,
     logoUrl: settings.logoUrl ?? "",
+    // 旧数据 / 旧 mock 可能没有该字段：契约默认开
+    searchNewTab: settings.searchNewTab ?? true,
   });
 
   const save = async () => {
@@ -320,6 +322,21 @@ export function SettingsPanel({
               </SelectContent>
             </Select>
           </div>
+        </div>
+        <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+          <div className="grid gap-1">
+            <Label htmlFor="set-search-new-tab">搜索在新标签页打开</Label>
+            <p className="text-sm text-muted-foreground">
+              开启时搜索结果在新标签页打开，当前起始页与已展开的分类不会丢；关闭则沿用当前页跳转。
+            </p>
+          </div>
+          <Switch
+            id="set-search-new-tab"
+            checked={form.searchNewTab}
+            onCheckedChange={(searchNewTab) =>
+              setForm({ ...form, searchNewTab })
+            }
+          />
         </div>
       </div>
       <Button onClick={() => void save()} className="w-fit">

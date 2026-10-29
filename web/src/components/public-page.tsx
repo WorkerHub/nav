@@ -120,7 +120,12 @@ export function PublicPage({ onOpenAdmin }: { onOpenAdmin: () => void }) {
               (settings?.siteTitle ?? "我的导航")
             )}
           </h1>
-          {siteData && <SearchBar engines={siteData.searchEngines} />}
+          {siteData && (
+            <SearchBar
+              engines={siteData.searchEngines}
+              openInNewTab={siteData.settings.searchNewTab ?? true}
+            />
+          )}
         </FadeIn>
 
         {/* 导航区：登录后为全量分类（公开+私有），私有分类带「私有」标识 */}

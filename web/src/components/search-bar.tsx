@@ -14,8 +14,17 @@ import type { SearchEngine } from "@/lib/types";
 
 /**
  * 顶部多引擎搜索框：引擎切换（下拉）、`/` 键全局聚焦、Enter 按 {q} 模板跳转。
+ *
+ * `openInNewTab`（站点设置 `searchNewTab`，默认开）：开时结果在新标签页打开，
+ * 起始页与会话保留；关时沿用当前页跳转。两种方式对所有引擎（含自定义）一致生效。
  */
-export function SearchBar({ engines }: { engines: SearchEngine[] }) {
+export function SearchBar({
+  engines,
+  openInNewTab = true,
+}: {
+  engines: SearchEngine[];
+  openInNewTab?: boolean;
+}) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [engineId, setEngineId] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
@@ -47,10 +56,12 @@ export function SearchBar({ engines }: { engines: SearchEngine[] }) {
     e.preventDefault();
     const q = query.trim();
     if (!q || !engine) return;
-    window.location.href = engine.urlTemplate.replace(
-      "{q}",
-      encodeURIComponent(q),
-    );
+    const url = engine.urlTemplate.replace("{q}", encodeURIComponent(q));
+    if (openInNewTab) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    window.location.href = url;
   };
 
   return (
