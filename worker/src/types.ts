@@ -155,6 +155,8 @@ export interface SiteSettingsDto {
   theme: string;
   /** 0–12; 0 means "unconfigured" (the consumer applies its default). */
   columns: number;
+  /** Open search results in a new tab (settings key `search_new_tab`); defaults to `true`. */
+  searchNewTab: boolean;
 }
 
 export interface SiteDataDto {

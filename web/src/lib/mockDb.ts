@@ -151,6 +151,7 @@ function seed(): MockState {
       logoUrl: "",
       theme: "system",
       columns: 8,
+      searchNewTab: true,
     },
   };
 }
@@ -158,7 +159,14 @@ function seed(): MockState {
 function load(): MockState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as MockState;
+    if (raw) {
+      // 旧 mock 库没有 searchNewTab：按契约默认开补齐，避免界面读到 undefined
+      const state = JSON.parse(raw) as Omit<MockState, "settings"> & {
+        settings: Partial<SiteSettings>;
+      };
+      state.settings = { searchNewTab: true, ...state.settings };
+      return state as MockState;
+    }
   } catch {
     /* fall through to seed */
   }

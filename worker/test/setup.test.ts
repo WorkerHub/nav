@@ -411,6 +411,7 @@ describe("admin system endpoints", () => {
       "backgroundUrl",
       "columns",
       "logoUrl",
+      "searchNewTab",
       "siteTitle",
       "theme",
     ]);

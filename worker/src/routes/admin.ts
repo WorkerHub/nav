@@ -413,6 +413,7 @@ const SETTING_KEYS = [
   "logo_url",
   "theme",
   "columns",
+  "search_new_tab",
 ] as const;
 
 adminRoutes.get("/settings", async (c) => {
@@ -458,6 +459,12 @@ adminRoutes.put("/settings", async (c) => {
     if (!Number.isFinite(columns) || columns < 0 || columns > 12)
       return badRequest("columns must be between 0 and 12");
     updates.columns = String(columns);
+  }
+  if (body.searchNewTab !== undefined) {
+    // Stored as the KV boolean convention ("1"/"0"), like totp_enabled.
+    if (typeof body.searchNewTab !== "boolean")
+      return badRequest("searchNewTab must be a boolean");
+    updates.search_new_tab = body.searchNewTab ? "1" : "0";
   }
 
   for (const [key, value] of Object.entries(updates)) {

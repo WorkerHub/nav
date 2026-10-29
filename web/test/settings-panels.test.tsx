@@ -28,6 +28,7 @@ const baseSettings: SiteSettings = {
   logoUrl: "",
   theme: "system",
   columns: 6,
+  searchNewTab: true,
 };
 
 const file = new File([new Uint8Array([1, 2, 3])], "pic.png", {
@@ -141,5 +142,60 @@ describe("SettingsPanel：背景图与 Logo 的上传 / 预览 / 移除", () => 
     expect(updateSettingsMock.mock.calls[0][0]).toMatchObject({
       logoUrl: "/assets/assets/logo/up-1.svg",
     });
+  });
+});
+
+describe("SettingsPanel：搜索在新标签页打开开关（默认开）", () => {
+  beforeEach(() => {
+    uploadMock.mockReset();
+    updateSettingsMock.mockReset();
+    updateSettingsMock.mockImplementation(async (input) => ({
+      ...baseSettings,
+      ...input,
+    }));
+  });
+
+  it("现有设置 searchNewTab=true：开关为开，保存时原样提交", async () => {
+    const user = userEvent.setup();
+
+    render(<SettingsPanel settings={baseSettings} onChanged={vi.fn()} />);
+
+    const toggle = screen.getByLabelText("搜索在新标签页打开");
+    expect(toggle).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() => expect(updateSettingsMock).toHaveBeenCalledTimes(1));
+    expect(updateSettingsMock.mock.calls[0][0]).toMatchObject({
+      searchNewTab: true,
+    });
+  });
+
+  it("关闭开关后保存 searchNewTab=false", async () => {
+    const user = userEvent.setup();
+
+    render(<SettingsPanel settings={baseSettings} onChanged={vi.fn()} />);
+
+    const toggle = screen.getByLabelText("搜索在新标签页打开");
+    await user.click(toggle);
+    expect(toggle).not.toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() => expect(updateSettingsMock).toHaveBeenCalledTimes(1));
+    expect(updateSettingsMock.mock.calls[0][0]).toMatchObject({
+      searchNewTab: false,
+    });
+  });
+
+  it("旧数据缺该字段时按默认开显示，不会因 undefined 变关", async () => {
+    render(
+      <SettingsPanel
+        settings={{ ...baseSettings, searchNewTab: undefined as never }}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("搜索在新标签页打开")).toBeChecked();
   });
 });
