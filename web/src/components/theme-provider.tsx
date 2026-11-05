@@ -7,18 +7,14 @@ import {
 } from "@/lib/theme";
 
 /**
- * 主题 Provider（ONE-448）：把生效档位落到 `<html>` 上。
+ * 主题 Provider：把生效档位落到 `<html>` 上。
  *
- * - 档位有两层：访客本机偏好（localStorage，若有）> 站点设置 `settings.theme`
- *   （公开页 /api/public、登录后 /api/private、后台 /api/admin/settings）。
- *   公开页与管理面走同一个 Provider，因此两侧表现一致；后台保存设置后 store 里的
- *   adminData 立即刷新，优先取它，避免沿用旧的 publicData。本机偏好优先，所以访客
- *   手动选过之后后台改默认不覆盖他；点回「跟随系统」则回到按系统外观解析。
+ * - 档位只有一层：访客本机偏好（localStorage，三档循环），没有偏好时跟随系统。
+ *   公开页与管理面走同一个 Provider，因此两侧表现一致。
  * - system 档订阅 matchMedia：系统深浅色一变即时跟随，无需刷新页面。
  * - 生效方式是 documentElement 的 `.dark` 类（web/src/index.css 的 dark 变体）
  *   加 `color-scheme`（让滚动条 / 原生控件跟着变）。
- * - 用 useLayoutEffect 在绘制前完成切换，避免「先亮后暗」的闪烁；站点数据
- *   未加载且访客没有本机偏好时什么都不改，不拿 light/dark 去猜。
+ * - 用 useLayoutEffect 在绘制前完成切换，避免「先亮后暗」的闪烁。
  */
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const mode = useEffectiveThemeMode();
@@ -35,10 +31,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return () => media.removeEventListener("change", onChange);
   }, [setSystemDark]);
 
-  const resolved = mode ? resolveTheme(mode, systemDark) : null;
+  const resolved = resolveTheme(mode, systemDark);
 
   React.useLayoutEffect(() => {
-    if (!resolved) return;
     const root = document.documentElement;
     root.classList.toggle("dark", resolved === "dark");
     root.style.colorScheme = resolved;

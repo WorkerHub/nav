@@ -262,7 +262,7 @@ export function SettingsPanel({
       ...form,
       logoUrl: form.logoUrl ?? "",
     });
-    // 主题等站点级设置：用保存响应就地刷新 store，保存即生效（不必等 loadAdmin 重拉）
+    // 站点级设置：用保存响应就地刷新 store，保存即生效（不必等 loadAdmin 重拉）
     useNavStore.getState().patchAdminSettings(saved);
     toast.success("设置已保存");
     onChanged();
@@ -318,38 +318,18 @@ export function SettingsPanel({
           value={form.logoUrl ?? ""}
           onChange={(logoUrl) => setForm({ ...form, logoUrl })}
         />
-        <div className="grid grid-cols-2 gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="set-cols">列数（1–12）</Label>
-            <Input
-              id="set-cols"
-              type="number"
-              min={1}
-              max={12}
-              value={form.columns}
-              onChange={(e) =>
-                setForm({ ...form, columns: Number(e.target.value) })
-              }
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="set-theme">主题</Label>
-            <Select
-              value={form.theme}
-              onValueChange={(v) =>
-                setForm({ ...form, theme: v as SiteSettings["theme"] })
-              }
-            >
-              <SelectTrigger id="set-theme" aria-label="选择主题">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="system">跟随系统</SelectItem>
-                <SelectItem value="light">浅色</SelectItem>
-                <SelectItem value="dark">深色</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="grid gap-2">
+          <Label htmlFor="set-cols">列数（1–12）</Label>
+          <Input
+            id="set-cols"
+            type="number"
+            min={1}
+            max={12}
+            value={form.columns}
+            onChange={(e) =>
+              setForm({ ...form, columns: Number(e.target.value) })
+            }
+          />
         </div>
         <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
           <div className="grid gap-1">
@@ -408,7 +388,7 @@ export function ImportExportPanel({
       if (data.searchEngines?.length)
         await adminImportEngines(data.searchEngines);
       if (data.settings) {
-        // 导入的主题同样立即生效（store 就地刷新，ThemeProvider 跟 settings.theme 走）
+        // 导入的站点设置立即生效（store 就地刷新，标题/壁纸等随之更新）
         useNavStore
           .getState()
           .patchAdminSettings(await adminUpdateSettings(data.settings));

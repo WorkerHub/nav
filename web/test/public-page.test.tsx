@@ -14,7 +14,6 @@ const baseSettings: SiteSettings = {
   backgroundUrl: "",
   wallpaperSource: "bing",
   logoUrl: "",
-  theme: "system",
   columns: 6,
   searchNewTab: true,
 };

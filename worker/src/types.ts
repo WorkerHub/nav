@@ -154,7 +154,6 @@ export interface SiteSettingsDto {
   wallpaperSource: "bing" | "custom";
   /** Local upload path (`/assets/…`) or an external URL; "" when unset. */
   logoUrl: string;
-  theme: string;
   /** 0–12; 0 means "unconfigured" (the consumer applies its default). */
   columns: number;
   /** Open search results in a new tab (settings key `search_new_tab`); defaults to `true`. */

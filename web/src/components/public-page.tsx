@@ -3,6 +3,7 @@ import { LogIn, LogOut, Settings } from "lucide-react";
 import { FadeIn } from "@/components/glass";
 import { CategorySection } from "@/components/link-grid";
 import { LoginDialog } from "@/components/login-dialog";
+import { PageBackground } from "@/components/page-background";
 import { SearchBar } from "@/components/search-bar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -46,33 +47,6 @@ export function PublicPage({ onOpenAdmin }: { onOpenAdmin: () => void }) {
   const settings = siteData?.settings;
   const categories = siteData?.categories ?? [];
 
-  // 壁纸来源（SPEC：缺省 bing）。custom 且填了 backgroundUrl 才用自定义图，
-  // 否则（bing / custom 但 backgroundUrl 为空）都走 Bing 每日壁纸端点。
-  // 站点设置未到达（settings 为 undefined）时先不解析来源、也不发探针，
-  // 以免设置还没回就提前拉取整张大图；此时先显示纯色底。
-  const settingsReady = settings !== undefined;
-  const wallpaperSource = settings?.wallpaperSource ?? "bing";
-  const customBackgroundUrl = settings?.backgroundUrl ?? "";
-  const useBing =
-    settingsReady && (wallpaperSource !== "custom" || !customBackgroundUrl);
-
-  // bing 取图失败时回落：先试 backgroundUrl（非空），再落到纯色底（url 层去掉）。
-  const [bingFailed, setBingFailed] = React.useState(false);
-  React.useEffect(() => {
-    setBingFailed(false);
-    if (!useBing) return;
-    const img = new Image();
-    img.onload = () => setBingFailed(false);
-    img.onerror = () => setBingFailed(true);
-    img.src = "/api/wallpaper/today";
-  }, [useBing]);
-
-  const backgroundUrl = !settingsReady
-    ? ""
-    : useBing && !bingFailed
-      ? "/api/wallpaper/today"
-      : customBackgroundUrl;
-
   // 私有标识：/api/private 的分类 DTO 不含 visibility，用「全量里有、公开列表里没有」推导私有分类。
   const publicIds = new Set(publicData?.categories.map((c) => c.id) ?? []);
   const privateIds = new Set(
@@ -82,16 +56,7 @@ export function PublicPage({ onOpenAdmin }: { onOpenAdmin: () => void }) {
   return (
     <div className="relative min-h-screen">
       {/* 背景层：全屏背景图 + 阅读性罩层 */}
-      <div
-        aria-hidden="true"
-        className="fixed inset-0 -z-10 bg-cover bg-center bg-no-repeat"
-        style={{
-          backgroundImage: `linear-gradient(rgba(15,23,42,0.55), rgba(15,23,42,0.35)), url(${JSON.stringify(
-            backgroundUrl,
-          )})`,
-          backgroundColor: "#0f172a",
-        }}
-      />
+      <PageBackground settings={settings} />
 
       {/* 顶栏：整条毛玻璃，左侧站点标题/Logo，右侧后台、退出与主题切换 */}
       <header className="glass-bar sticky top-0 z-20">

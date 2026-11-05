@@ -46,7 +46,6 @@ export function toSiteSettingsDto(
     // 缺省/脏值一律归一 `bing`：存量库没有该键时默认用 Bing 每日壁纸。
     wallpaperSource: settings.wallpaper_source === "custom" ? "custom" : "bing",
     logoUrl: settings.logo_url ?? "",
-    theme: settings.theme ?? "system",
     columns: Number.isFinite(columns) && columns > 0 ? columns : 0,
     // 存量库没有该键时按默认「开」：搜索在新标签页打开，起始页不被顶掉。
     searchNewTab: (settings.search_new_tab ?? "1") === "1",

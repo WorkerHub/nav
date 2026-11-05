@@ -44,7 +44,6 @@
     "backgroundUrl": "",
     "wallpaperSource": "bing",
     "logoUrl": "",
-    "theme": "system",
     "columns": 0,
     "searchNewTab": true
   }
@@ -138,8 +137,8 @@ Passkey（WebAuthn，/api/auth/passkey/*，@simplewebauthn/server v14）：
 
 ### 站点设置
 
-- `GET /api/admin/settings` → `{siteTitle, backgroundUrl, wallpaperSource, logoUrl, theme, columns, searchNewTab}`
-- `PUT /api/admin/settings` body 可含 `{siteTitle, backgroundUrl, wallpaperSource(bing|custom), logoUrl, theme(light|dark|system), columns(0–12), searchNewTab(boolean)}` → 更新后对象
+- `GET /api/admin/settings` → `{siteTitle, backgroundUrl, wallpaperSource, logoUrl, columns, searchNewTab}`
+- `PUT /api/admin/settings` body 可含 `{siteTitle, backgroundUrl, wallpaperSource(bing|custom), logoUrl, columns(0–12), searchNewTab(boolean)}` → 更新后对象
 
 `searchNewTab`：搜索是否在新标签页打开。存储键 `search_new_tab`，值 `"1"`/`"0"`（同 `totp_enabled` 的 KV 布尔惯例）；库中**无此键**（存量库）时按 `true` 返回。写入只接受布尔值，非布尔返回 400 `searchNewTab must be a boolean`。
 

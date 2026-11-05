@@ -411,7 +411,6 @@ const SETTING_KEYS = [
   "site_title",
   "background_url",
   "logo_url",
-  "theme",
   "columns",
   "search_new_tab",
   "wallpaper_source",
@@ -445,12 +444,6 @@ adminRoutes.put("/settings", async (c) => {
   if (body.logoUrl !== undefined) {
     updates.logo_url = String(body.logoUrl);
     collectReplacedAsset(previous.logo_url, updates.logo_url, replacedAssets);
-  }
-  if (body.theme !== undefined) {
-    const theme = String(body.theme);
-    if (!["light", "dark", "system"].includes(theme))
-      return badRequest("theme must be light, dark or system");
-    updates.theme = theme;
   }
   if (body.columns !== undefined) {
     const columns = Number.parseInt(String(body.columns), 10);

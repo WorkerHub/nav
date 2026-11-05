@@ -150,7 +150,6 @@ function seed(): MockState {
         "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=2400&q=80",
       wallpaperSource: "bing",
       logoUrl: "",
-      theme: "system",
       columns: 8,
       searchNewTab: true,
     },

@@ -173,6 +173,15 @@
     box-shadow: var(--shadow-lg);
     transform: translateY(-1px);
   }
+  /*
+   * 后台左栏菜单选中项：玻璃高亮胶囊。复用 .glass 的 token（不新增颜色），
+   * 作用在 Radix TabsTrigger 的 data-state="active" 态。
+   */
+  .admin-menu-trigger[data-state="active"] {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

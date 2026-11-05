@@ -413,7 +413,6 @@ describe("admin system endpoints", () => {
       "logoUrl",
       "searchNewTab",
       "siteTitle",
-      "theme",
       "wallpaperSource",
     ]);
     expect(JSON.stringify(publicBody)).not.toContain(SETUP_PAGE_KEY);

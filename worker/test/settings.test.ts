@@ -111,12 +111,11 @@ describe("PUT /api/admin/settings columns", () => {
       siteTitle: "nav",
       backgroundUrl: "",
       logoUrl: "",
-      theme: "dark",
       columns: 0,
     });
     expect(res.status).toBe(200);
     const body = await readJson(res);
-    expect(body).toMatchObject({ siteTitle: "nav", theme: "dark", columns: 0 });
+    expect(body).toMatchObject({ siteTitle: "nav", columns: 0 });
     expect(storedColumns(env)).toBe("0");
   });
 
