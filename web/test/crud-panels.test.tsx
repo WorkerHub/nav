@@ -10,12 +10,18 @@ import {
   adminDeleteCategory,
   adminDeleteEngine,
   adminDeleteLink,
+  adminReorderCategories,
+  adminReorderEngines,
+  adminReorderLinks,
   adminUpdateCategory,
   adminUpdateEngine,
   adminUpdateLink,
   adminUploadAsset,
+  type AdminData,
 } from "@/lib/api";
+import { useNavStore } from "@/lib/nav-store";
 import type { AdminCategory, AdminLink, SearchEngine } from "@/lib/types";
+import { deferred } from "./deferred";
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -34,6 +40,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
     adminDeleteEngine: vi.fn(),
     adminUpdateLink: vi.fn(),
     adminUpdateEngine: vi.fn(),
+    adminReorderCategories: vi.fn(),
+    adminReorderLinks: vi.fn(),
+    adminReorderEngines: vi.fn(),
   };
 });
 
@@ -46,6 +55,9 @@ const deleteLinkMock = vi.mocked(adminDeleteLink);
 const deleteEngineMock = vi.mocked(adminDeleteEngine);
 const updateLinkMock = vi.mocked(adminUpdateLink);
 const updateEngineMock = vi.mocked(adminUpdateEngine);
+const reorderCategoriesMock = vi.mocked(adminReorderCategories);
+const reorderLinksMock = vi.mocked(adminReorderLinks);
+const reorderEnginesMock = vi.mocked(adminReorderEngines);
 const toastErrorMock = vi.mocked(toast.error);
 const toastSuccessMock = vi.mocked(toast.success);
 
@@ -87,6 +99,83 @@ const engine: SearchEngine = {
   isDefault: true,
 };
 
+const bingEngine: SearchEngine = {
+  id: "e2",
+  name: "Bing",
+  urlTemplate: "https://www.bing.com/search?q={q}",
+  icon: null,
+  sortOrder: 1,
+  isDefault: false,
+};
+
+const readingCategory: AdminCategory = {
+  ...category,
+  id: "c2",
+  name: "阅读",
+  sortOrder: 1,
+};
+
+/** 全局顺序：GitHub(c1) → 少数派(c2) → 知乎(c2) → MDN(c1)，用于验证跨分类语义。 */
+const sspaiLink: AdminLink = {
+  ...link,
+  id: "l2",
+  categoryId: "c2",
+  title: "少数派",
+  url: "https://sspai.com",
+  sortOrder: 1,
+};
+const zhihuLink: AdminLink = {
+  ...link,
+  id: "l3",
+  categoryId: "c2",
+  title: "知乎",
+  url: "https://www.zhihu.com",
+  sortOrder: 2,
+};
+const mdnLink: AdminLink = {
+  ...link,
+  id: "l4",
+  categoryId: "c1",
+  title: "MDN",
+  url: "https://developer.mozilla.org",
+  sortOrder: 3,
+};
+
+function makeAdminData(parts: Partial<AdminData> = {}): AdminData {
+  return {
+    categories: [category, readingCategory],
+    links: [link, sspaiLink, zhihuLink, mdnLink],
+    searchEngines: [engine, bingEngine],
+    settings: {
+      siteTitle: "我的导航",
+      backgroundUrl: "",
+      wallpaperSource: "bing",
+      logoUrl: "",
+      columns: 6,
+      searchNewTab: true,
+    },
+    ...parts,
+  };
+}
+
+/** 行顺序读法：行尾编辑按钮的 aria-label（与 DOM 顺序一致）。 */
+function rowLabels(): (string | null)[] {
+  return screen
+    .getAllByRole("button", { name: /^编辑 / })
+    .map((el) => el.getAttribute("aria-label"));
+}
+
+/** 与 AdminPage 同构的接线：面板的 props 来自 store，store 一变即重渲染。 */
+function StoreCategoryPanel({ onChanged }: { onChanged: () => void }) {
+  const categories = useNavStore((s) => s.adminData?.categories ?? []);
+  return <CategoryPanel categories={categories} onChanged={onChanged} />;
+}
+
+function StoreEnginePanel({ onChanged }: { onChanged: () => void }) {
+  const engines = useNavStore((s) => s.adminData?.searchEngines ?? []);
+  return <SearchEnginePanel engines={engines} onChanged={onChanged} />;
+}
+
 function pickFile(input: HTMLElement) {
   fireEvent.change(input, { target: { files: [file] } });
 }
@@ -109,8 +198,13 @@ beforeEach(() => {
   deleteEngineMock.mockReset();
   updateLinkMock.mockReset();
   updateEngineMock.mockReset();
+  reorderCategoriesMock.mockReset();
+  reorderLinksMock.mockReset();
+  reorderEnginesMock.mockReset();
   toastErrorMock.mockReset();
   toastSuccessMock.mockReset();
+  // 排序用到的 store 数据每个用例自行重置，避免跨用例残留顺序
+  useNavStore.setState({ adminData: null });
   deleteCategoryMock.mockResolvedValue(undefined);
   deleteLinkMock.mockResolvedValue(undefined);
   deleteEngineMock.mockResolvedValue(undefined);
@@ -566,5 +660,134 @@ describe("链接 / 搜索引擎：删除同样二次确认", () => {
     await waitFor(() => expect(deleteEngineMock).toHaveBeenCalledWith("e1"));
     expect(onChanged).toHaveBeenCalled();
     expect(toastSuccessMock).toHaveBeenCalledWith("搜索引擎已删除");
+  });
+});
+
+describe("排序：乐观更新（松手 / 点按钮即定住，不回弹）", () => {
+  it("分类：点下移后界面立即换位，reorder 请求返回后才 onChanged 对账", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    const d = deferred();
+    reorderCategoriesMock.mockReturnValue(d.promise);
+    useNavStore.setState({ adminData: makeAdminData() });
+
+    render(<StoreCategoryPanel onChanged={onChanged} />);
+    expect(rowLabels()).toEqual(["编辑 开发", "编辑 阅读"]);
+
+    await user.click(screen.getByRole("button", { name: "下移 开发" }));
+
+    // 请求还没返回：新顺序已经定住（不再等两次往返）
+    expect(rowLabels()).toEqual(["编辑 阅读", "编辑 开发"]);
+    expect(reorderCategoriesMock).toHaveBeenCalledWith(["c2", "c1"]);
+    expect(onChanged).not.toHaveBeenCalled();
+
+    d.resolve();
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+  });
+
+  it("搜索引擎：点下移后界面立即换位", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    const d = deferred();
+    reorderEnginesMock.mockReturnValue(d.promise);
+    useNavStore.setState({ adminData: makeAdminData({ links: [] }) });
+
+    render(<StoreEnginePanel onChanged={onChanged} />);
+    expect(rowLabels()).toEqual(["编辑 Google", "编辑 Bing"]);
+
+    await user.click(screen.getByRole("button", { name: "下移 Google" }));
+
+    expect(rowLabels()).toEqual(["编辑 Bing", "编辑 Google"]);
+    expect(reorderEnginesMock).toHaveBeenCalledWith(["e2", "e1"]);
+    expect(onChanged).not.toHaveBeenCalled();
+
+    d.resolve();
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+  });
+
+  it("分类：排序失败时界面回滚到原顺序并提示", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    reorderCategoriesMock.mockRejectedValue(new Error("网络错误"));
+    useNavStore.setState({ adminData: makeAdminData() });
+
+    render(<StoreCategoryPanel onChanged={onChanged} />);
+    await user.click(screen.getByRole("button", { name: "下移 开发" }));
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith("排序失败，已恢复原顺序"),
+    );
+    expect(rowLabels()).toEqual(["编辑 开发", "编辑 阅读"]);
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe("链接面板：过滤视图下的排序保持全局顺序语义", () => {
+  it("分类过滤内下移一条：提交全局 ids，其他分类链接相对顺序不变", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    reorderLinksMock.mockResolvedValue(undefined);
+    const data = makeAdminData();
+    useNavStore.setState({ adminData: data });
+
+    render(
+      <LinkPanel
+        categories={data.categories}
+        links={data.links}
+        onChanged={onChanged}
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "选择分类" }));
+    await user.click(screen.getByRole("option", { name: "阅读" }));
+    await waitFor(() => expect(screen.getByText("少数派")).toBeInTheDocument());
+    expect(screen.queryByText("GitHub")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "下移 少数派" }));
+
+    // 全局 ids：只交换「阅读」分类内的 l2 / l3；c1 的 l1、l4 相对顺序不变
+    await waitFor(() =>
+      expect(reorderLinksMock).toHaveBeenCalledWith(["l1", "l3", "l2", "l4"]),
+    );
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(
+      useNavStore.getState().adminData!.links.map((l) => [l.id, l.sortOrder]),
+    ).toEqual([
+      ["l1", 0],
+      ["l3", 1],
+      ["l2", 2],
+      ["l4", 3],
+    ]);
+  });
+
+  it("「所有」视图下排序：提交的全局 ids 与展示顺序一致", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    reorderLinksMock.mockResolvedValue(undefined);
+    const data = makeAdminData();
+    useNavStore.setState({ adminData: data });
+
+    render(
+      <LinkPanel
+        categories={data.categories}
+        links={data.links}
+        onChanged={onChanged}
+      />,
+    );
+
+    // 「所有」默认视图：全局顺序 GitHub → 少数派 → 知乎 → MDN
+    expect(rowLabels()).toEqual([
+      "编辑 GitHub",
+      "编辑 少数派",
+      "编辑 知乎",
+      "编辑 MDN",
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "下移 GitHub" }));
+
+    await waitFor(() =>
+      expect(reorderLinksMock).toHaveBeenCalledWith(["l2", "l1", "l3", "l4"]),
+    );
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
 });

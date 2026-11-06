@@ -8,6 +8,9 @@ import {
   logout as apiLogout,
   verifyTotp as apiVerifyTotp,
   adminListAll,
+  adminReorderCategories,
+  adminReorderEngines,
+  adminReorderLinks,
   UnauthorizedError,
   ApiError,
   type AdminData,
@@ -67,6 +70,15 @@ interface NavState {
   /** 后台数据（分类/链接/引擎/设置），登录后加载 */
   adminData: AdminData | null;
 
+  /**
+   * 乐观排序：按新 ids 立即重写本地 `sortOrder`（界面当场定住，不等网络），
+   * 再发 reorder 请求；失败回滚到操作前顺序并抛出（由调用面板 toast）。
+   * 成功后仍由调用方 `onChanged()` 整表重拉对账。
+   */
+  reorderCategories: (ids: string[]) => Promise<void>;
+  reorderLinks: (ids: string[]) => Promise<void>;
+  reorderEngines: (ids: string[]) => Promise<void>;
+
   /** 启动探活：刷新后恢复登录态（pending → authenticated/anonymous） */
   bootstrapSession: () => Promise<void>;
   loadPublic: () => Promise<void>;
@@ -84,6 +96,60 @@ interface NavState {
   logout: () => Promise<void>;
   setLoginPrompt: (open: boolean) => void;
   defaultEngine: () => SearchEngine | null;
+}
+
+/** store 里可排序的实体：都带 `id` 与 `sortOrder`。 */
+type SortableRecord = { id: string; sortOrder: number };
+
+/**
+ * 按新 ids 就地重写 `sortOrder`，并让数组本身也按新顺序排列。
+ * 两个都要做：链接面板按 `sortOrder` 排序，分类 / 引擎面板直接按数组顺序渲染。
+ * ids 之外的元素保持原 `sortOrder`，相对顺序不变（稳定排序保证）。
+ */
+function applySortOrder<T extends SortableRecord>(
+  list: T[],
+  ids: string[],
+): T[] {
+  const indexOf = new Map(ids.map((id, index) => [id, index]));
+  return list
+    .map((item) => {
+      const next = indexOf.get(item.id);
+      return next === undefined ? item : { ...item, sortOrder: next };
+    })
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+/**
+ * 乐观排序的统一实现（分类 / 链接 / 引擎三者同构）：
+ *  1. 同步写新顺序进 store（在首个 await 之前），面板立即重渲染；
+ *  2. 发 reorder 请求；失败用操作前快照回滚并 rethrow，由面板 toast。
+ * 不做重拉：成功后由面板 `onChanged()`（loadAdmin）对账，行为与现状一致。
+ */
+async function optimisticReorder<T extends SortableRecord>(
+  pick: (data: AdminData) => T[],
+  put: (data: AdminData, list: T[]) => AdminData,
+  request: (ids: string[]) => Promise<void>,
+  ids: string[],
+): Promise<void> {
+  const data = useNavStore.getState().adminData;
+  if (!data) {
+    // 后台数据未加载：没有本地顺序可改，仍把请求发出去（不吞掉用户的排序）。
+    await request(ids);
+    return;
+  }
+  const prev = pick(data);
+  const next = applySortOrder(prev, ids);
+  useNavStore.setState({ adminData: put(data, next) });
+  try {
+    await request(ids);
+  } catch (e) {
+    const current = useNavStore.getState().adminData;
+    // 只回滚「本次乐观写入」的结果：期间若有 loadAdmin 对账落地，不用旧快照盖掉新数据。
+    if (current && pick(current) === next) {
+      useNavStore.setState({ adminData: put(current, prev) });
+    }
+    throw e;
+  }
 }
 
 export const useNavStore = create<NavState>((set, get) => ({
@@ -222,6 +288,31 @@ export const useNavStore = create<NavState>((set, get) => ({
     const engines = get().publicData?.searchEngines ?? [];
     return engines.find((e) => e.isDefault) ?? engines[0] ?? null;
   },
+
+  reorderCategories: (ids) =>
+    optimisticReorder(
+      (data) => data.categories,
+      (data, categories) => ({ ...data, categories }),
+      adminReorderCategories,
+      ids,
+    ),
+
+  // ids 是**全局**链接顺序（契约 sort_order 全局）；面板负责重建全量 ids。
+  reorderLinks: (ids) =>
+    optimisticReorder(
+      (data) => data.links,
+      (data, links) => ({ ...data, links }),
+      adminReorderLinks,
+      ids,
+    ),
+
+  reorderEngines: (ids) =>
+    optimisticReorder(
+      (data) => data.searchEngines,
+      (data, searchEngines) => ({ ...data, searchEngines }),
+      adminReorderEngines,
+      ids,
+    ),
 
   // 后端 PUT /api/admin/settings 返回保存后的完整设置（权威响应）：原子刷新 store 里
   // **所有存活**的 settings 切片，而不是只刷 adminData：
