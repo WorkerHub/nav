@@ -129,22 +129,59 @@ function applySortOrder<T extends SortableRecord>(
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-/** 两个数组是否同一个 id 序列（用于判断本地顺序是否仍是本次乐观写入的结果）。 */
-function hasSameIdOrder<T extends SortableRecord>(
-  list: T[],
-  expected: T[],
-): boolean {
-  return (
-    list.length === expected.length &&
-    list.every((item, index) => item.id === expected[index].id)
+/** 两个 id 序列是否完全一致。 */
+function sameIdSequence(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+/**
+ * 失败回滚：只还原**顺序**，内容一律取当前值。
+ *  - 本次排序涉及、当前仍存在的实体，按 `prev` 里的先后重新排列；
+ *  - 其余实体（含对账期间新增的）保持当前顺序与内容；
+ *  - 返回 null 表示当前顺序已不是本次写入的顺序（期间有更晚的排序改写了它），不回滚。
+ * 只动顺序不动内容，才能让对账期间带回的新增 / 改名等变化不被旧快照撤销。
+ */
+function rollbackOrder<T extends SortableRecord>(
+  current: T[],
+  prev: T[],
+  ids: string[],
+): T[] | null {
+  const idSet = new Set(ids);
+  const currentIds = current
+    .filter((item) => idSet.has(item.id))
+    .map((item) => item.id);
+  const existing = new Set(currentIds);
+  // 本次写入的顺序就是 ids 顺序；期间被删掉的实体从两边一起消失
+  if (
+    !sameIdSequence(
+      currentIds,
+      ids.filter((id) => existing.has(id)),
+    )
+  ) {
+    return null;
+  }
+  const prevIndex = new Map(prev.map((item, index) => [item.id, index]));
+  const restored = current
+    .filter((item) => idSet.has(item.id))
+    .sort(
+      (a, b) =>
+        (prevIndex.get(a.id) ?? prev.length) -
+        (prevIndex.get(b.id) ?? prev.length),
+    );
+  let cursor = 0;
+  // 只替换本次涉及实体占用的位置：新增实体与其他实体原地不动
+  const reordered = current.map((item) =>
+    idSet.has(item.id) ? restored[cursor++] : item,
   );
+  // 重编号 sortOrder，保持「数组顺序 = sortOrder」不变
+  return reordered.map((item, index) => ({ ...item, sortOrder: index }));
 }
 
 /**
  * 在飞的乐观排序登记（按实体）。`loadAdmin` 是对账重拉，回来得可能比下一次拖拽晚：
  * 若它落地时整份覆盖，就会把「后一次」的乐观顺序盖回「前一次」——回弹只是被推迟。
  * 处理方式见 `reconcileAdminData`：对账落地时把「这份请求发出之后才 settle（或仍在飞）」
- * 的顺序重新套回新数据。请求失败会立即撤销登记（本地已回滚、服务端也没变）。
+ * 的顺序重新套回新数据。请求失败会立即撤销登记。
  */
 interface PendingOrder {
   ids: string[];
@@ -163,8 +200,9 @@ const pendingOrders: Record<AdminListKey, PendingOrder[]> = {
 
 /**
  * 把在飞的乐观排序叠加到对账数据上：
- *  - settle 早于本次请求发出的登记：服务端响应已包含它，直接撤销；
- *  - 仍在飞 / 本请求发出后才 settle 的登记：响应可能还没包含，必须保留并重新套上。
+ *  - settle 早于本次请求发出的登记：服务端处理时已包含它，直接撤销；
+ *  - 仍在飞 / 本请求发出后才 settle 的登记：响应是否包含它无法确定，一律保留并重新
+ *    套上（即使已包含，重套同一顺序也无副作用）。
  * 这样对账只刷新与服务端同步的部分，不会把用户刚做的排序盖回旧顺序。
  */
 function reconcileAdminData(data: AdminData, issuedAt: number): AdminData {
@@ -193,7 +231,7 @@ function reconcileAdminData(data: AdminData, issuedAt: number): AdminData {
 /**
  * 乐观排序的统一实现（分类 / 链接 / 引擎三者同构）：
  *  1. 同步写新顺序进 store（在首个 await 之前），面板立即重渲染；
- *  2. 发 reorder 请求；失败撤销登记、用操作前快照回滚并 rethrow，由面板 toast。
+ *  2. 发 reorder 请求；失败撤销登记、只把顺序还原到操作前并 rethrow，由面板 toast。
  * 不做重拉：成功后由面板 `onChanged()`（loadAdmin）对账，行为与现状一致。
  */
 async function optimisticReorder<T extends SortableRecord>(
@@ -220,13 +258,18 @@ async function optimisticReorder<T extends SortableRecord>(
     // 期间若有更早发出的对账数据回来，会用它把本次顺序重新套上（见 reconcileAdminData）。
     entry.settledAt = ++adminClock;
   } catch (e) {
-    // 失败：撤销登记并回滚。只在本地顺序仍是本次结果时整体回写快照，
-    // 避免盖掉期间更晚的一次乐观排序。
+    // 失败：撤销登记，并只把**顺序**还原到操作前；实体内容取当前值，
+    // 对账期间带回的新增 / 改名等变化不会被旧快照撤销。
     const index = pendingOrders[key].indexOf(entry);
+    // 登记按注册顺序排列：它后面还有登记，说明期间有更晚的排序，别去改它。
+    const hasLater = index >= 0 && index < pendingOrders[key].length - 1;
     if (index >= 0) pendingOrders[key].splice(index, 1);
     const current = useNavStore.getState().adminData;
-    if (current && hasSameIdOrder(pick(current), next)) {
-      useNavStore.setState({ adminData: put(current, prev) });
+    if (!hasLater && current) {
+      const rolledBack = rollbackOrder(pick(current), prev, ids);
+      if (rolledBack) {
+        useNavStore.setState({ adminData: put(current, rolledBack) });
+      }
     }
     throw e;
   }

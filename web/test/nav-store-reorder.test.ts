@@ -238,29 +238,86 @@ describe("store 乐观排序：失败回滚并抛出", () => {
     expect(adminData().searchEngines).toEqual(before);
   });
 
-  it("失败时若对账数据已落地，不用旧快照盖掉新数据", async () => {
+  it("失败回滚只还原顺序：对账带来的新分类保留", async () => {
     const d = deferred();
     reorderCategoriesMock.mockReturnValue(d.promise);
     const pending = useNavStore
       .getState()
       .reorderCategories(["c3", "c1", "c2"]);
 
-    // 请求在飞时 loadAdmin 对账落地（例如上一次操作的重拉）：替换成服务端权威数据
+    // 请求在飞时对账落地：服务端顺序还是旧的，并且多了一个新分类 c4
     const reconciled: AdminData = {
       ...makeAdminData(),
       categories: [
-        category("c3", "日常", 0),
-        category("c1", "开发", 1),
-        category("c2", "阅读", 2),
+        category("c1", "开发", 0),
+        category("c2", "阅读", 1),
+        category("c3", "日常", 2),
         category("c4", "新分类", 3),
       ],
     };
-    useNavStore.setState({ adminData: reconciled });
+    listAllMock.mockResolvedValue(reconciled);
+    await useNavStore.getState().loadAdmin();
+    // 对账把在飞的那次排序重新套上（新分类同样保留）
+    expect(adminData().categories.map((c) => c.id)).toEqual([
+      "c3",
+      "c1",
+      "c2",
+      "c4",
+    ]);
 
     d.reject(new Error("网络错误"));
     await expect(pending).rejects.toThrow("网络错误");
 
-    expect(useNavStore.getState().adminData).toBe(reconciled);
+    // 顺序回到操作前；对账新增的 c4 不被旧快照抹掉
+    const after = adminData();
+    expect(after.categories.map((c) => c.id)).toEqual(["c1", "c2", "c3", "c4"]);
+    expect(after.categories.find((c) => c.id === "c4")?.name).toBe("新分类");
+    expect(after.settings).toBe(reconciled.settings);
+    expect(after.links).toBe(reconciled.links);
+  });
+
+  it("失败回滚只还原顺序：对账期间改的名字保留新值", async () => {
+    const d = deferred();
+    reorderCategoriesMock.mockReturnValue(d.promise);
+    const pending = useNavStore
+      .getState()
+      .reorderCategories(["c3", "c1", "c2"]);
+
+    listAllMock.mockResolvedValue({
+      ...makeAdminData(),
+      categories: [
+        category("c1", "开发（改名）", 0),
+        category("c2", "阅读", 1),
+        category("c3", "日常", 2),
+      ],
+    });
+    await useNavStore.getState().loadAdmin();
+    expect(adminData().categories.map((c) => c.id)).toEqual(["c3", "c1", "c2"]);
+
+    d.reject(new Error("网络错误"));
+    await expect(pending).rejects.toThrow("网络错误");
+
+    const after = adminData();
+    expect(after.categories.map((c) => c.id)).toEqual(["c1", "c2", "c3"]);
+    expect(after.categories.find((c) => c.id === "c1")?.name).toBe(
+      "开发（改名）",
+    );
+  });
+
+  it("期间有更晚的排序成功时，前一次失败不去改它", async () => {
+    const first = deferred();
+    reorderCategoriesMock.mockReturnValueOnce(first.promise);
+    const p1 = useNavStore.getState().reorderCategories(["c2", "c1", "c3"]);
+
+    reorderCategoriesMock.mockResolvedValueOnce(undefined);
+    await useNavStore.getState().reorderCategories(["c1", "c3", "c2"]);
+    expect(adminData().categories.map((c) => c.id)).toEqual(["c1", "c3", "c2"]);
+
+    first.reject(new Error("网络错误"));
+    await expect(p1).rejects.toThrow("网络错误");
+
+    // 后一次排序的结果保持不变
+    expect(adminData().categories.map((c) => c.id)).toEqual(["c1", "c3", "c2"]);
   });
 });
 
