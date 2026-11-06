@@ -124,8 +124,8 @@ export function CategoryPanel({
     try {
       await useNavStore.getState().reorderCategories(ids);
       onChanged();
-    } catch {
-      toast.error("排序失败，已恢复原顺序");
+    } catch (e) {
+      toast.error(`排序失败，已恢复原顺序：${(e as Error).message}`);
     }
   };
 
@@ -319,8 +319,8 @@ export function LinkPanel({
         .getState()
         .reorderLinks([...before, ...orderedIds, ...after]);
       onChanged();
-    } catch {
-      toast.error("排序失败，已恢复原顺序");
+    } catch (e) {
+      toast.error(`排序失败，已恢复原顺序：${(e as Error).message}`);
     }
   };
 

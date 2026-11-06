@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  adminListAll,
   adminReorderCategories,
   adminReorderEngines,
   adminReorderLinks,
@@ -9,17 +10,19 @@ import { useNavStore } from "@/lib/nav-store";
 import type { AdminCategory, AdminLink, SearchEngine } from "@/lib/types";
 import { deferred } from "./deferred";
 
-// store 层乐观排序：只 mock 三个 reorder 请求，其余 api 保留真实实现（不被 import 期执行）。
+// store 层乐观排序：只 mock 三个 reorder 请求与对账重拉，其余 api 保留真实实现。
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
+    adminListAll: vi.fn(),
     adminReorderCategories: vi.fn(),
     adminReorderLinks: vi.fn(),
     adminReorderEngines: vi.fn(),
   };
 });
 
+const listAllMock = vi.mocked(adminListAll);
 const reorderCategoriesMock = vi.mocked(adminReorderCategories);
 const reorderLinksMock = vi.mocked(adminReorderLinks);
 const reorderEnginesMock = vi.mocked(adminReorderEngines);
@@ -94,16 +97,31 @@ function makeAdminData(): AdminData {
   };
 }
 
+/** 以某个顺序构造服务端权威数据（模拟对账响应）。 */
+function withCategoryOrder(
+  data: AdminData,
+  order: [string, string][],
+): AdminData {
+  return {
+    ...data,
+    categories: order.map(([id, name], index) => category(id, name, index)),
+  };
+}
+
+function adminData(): AdminData {
+  const data = useNavStore.getState().adminData;
+  if (!data) throw new Error("store 里没有 adminData");
+  return data;
+}
+
 /** 取某个实体数组的 (id, sortOrder) 快照，便于整体断言顺序重写。 */
-function orderOf(
-  key: keyof Pick<AdminData, "categories" | "links" | "searchEngines">,
-) {
-  return useNavStore
-    .getState()
-    .adminData![key].map((item) => [item.id, item.sortOrder]);
+function orderOf(key: "categories" | "links" | "searchEngines") {
+  const list: { id: string; sortOrder: number }[] = adminData()[key];
+  return list.map((item) => [item.id, item.sortOrder]);
 }
 
 beforeEach(() => {
+  listAllMock.mockReset();
   reorderCategoriesMock.mockReset();
   reorderLinksMock.mockReset();
   reorderEnginesMock.mockReset();
@@ -169,12 +187,12 @@ describe("store 乐观排序：请求未返回时新顺序已生效", () => {
 
   it("成功后不再自动重拉（对账仍由面板 onChanged 完成）", async () => {
     reorderCategoriesMock.mockResolvedValue(undefined);
-    const data = useNavStore.getState().adminData!;
+    const data = adminData();
 
     await useNavStore.getState().reorderCategories(["c2", "c1", "c3"]);
 
     // 只改了 categories 这一片：其余切片还是同一引用（若 loadAdmin 重拉，会整份换新）
-    const next = useNavStore.getState().adminData!;
+    const next = adminData();
     expect(next.links).toBe(data.links);
     expect(next.searchEngines).toBe(data.searchEngines);
     expect(next.settings).toBe(data.settings);
@@ -195,7 +213,7 @@ describe("store 乐观排序：失败回滚并抛出", () => {
       useNavStore.getState().reorderCategories(["c3", "c2", "c1"]),
     ).rejects.toThrow("网络错误");
 
-    expect(useNavStore.getState().adminData!.categories).toEqual(before);
+    expect(adminData().categories).toEqual(before);
   });
 
   it("链接：接口失败回滚全量 links 顺序", async () => {
@@ -206,7 +224,7 @@ describe("store 乐观排序：失败回滚并抛出", () => {
       useNavStore.getState().reorderLinks(["l4", "l3", "l2", "l1"]),
     ).rejects.toThrow("网络错误");
 
-    expect(useNavStore.getState().adminData!.links).toEqual(before);
+    expect(adminData().links).toEqual(before);
   });
 
   it("搜索引擎：接口失败回滚顺序", async () => {
@@ -217,7 +235,7 @@ describe("store 乐观排序：失败回滚并抛出", () => {
       useNavStore.getState().reorderEngines(["e2", "e1"]),
     ).rejects.toThrow("网络错误");
 
-    expect(useNavStore.getState().adminData!.searchEngines).toEqual(before);
+    expect(adminData().searchEngines).toEqual(before);
   });
 
   it("失败时若对账数据已落地，不用旧快照盖掉新数据", async () => {
@@ -246,14 +264,114 @@ describe("store 乐观排序：失败回滚并抛出", () => {
   });
 });
 
+describe("store 对账时序：loadAdmin 不盖掉更晚的乐观排序", () => {
+  it("对账请求在飞时又拖了一次：对账落地后仍是后一次的顺序", async () => {
+    const reorder = deferred();
+    reorderCategoriesMock.mockReturnValue(reorder.promise);
+    const stale = deferred<AdminData>();
+    listAllMock.mockReturnValue(stale.promise);
+
+    // 先发出对账请求（此时服务端还是旧顺序）
+    const loading = useNavStore.getState().loadAdmin();
+    // 用户随即拖拽：乐观顺序已生效，排序请求仍在飞
+    const reordering = useNavStore
+      .getState()
+      .reorderCategories(["c2", "c1", "c3"]);
+    expect(orderOf("categories")).toEqual([
+      ["c2", 0],
+      ["c1", 1],
+      ["c3", 2],
+    ]);
+
+    // 对账响应带着旧顺序落地：不能把用户刚做的排序盖回去
+    stale.resolve(makeAdminData());
+    await loading;
+    expect(orderOf("categories")).toEqual([
+      ["c2", 0],
+      ["c1", 1],
+      ["c3", 2],
+    ]);
+
+    reorder.resolve();
+    await reordering;
+  });
+
+  it("上一次的对账晚到时，保留后一次已提交的排序；之后的对账正常接受服务端顺序", async () => {
+    // 第一次排序成功（服务端只含这一次）
+    reorderCategoriesMock.mockResolvedValue(undefined);
+    await useNavStore.getState().reorderCategories(["c2", "c1", "c3"]);
+    const serverAfterFirst = withCategoryOrder(makeAdminData(), [
+      ["c2", "阅读"],
+      ["c1", "开发"],
+      ["c3", "日常"],
+    ]);
+
+    // 第一次排序触发的对账请求发出（响应是「只含第一次」的旧数据）
+    const stale = deferred<AdminData>();
+    listAllMock.mockReturnValue(stale.promise);
+    const loading = useNavStore.getState().loadAdmin();
+
+    // 用户又拖了一次：乐观 + 请求成功，此时界面是第二次的顺序
+    await useNavStore.getState().reorderCategories(["c1", "c2", "c3"]);
+    expect(orderOf("categories")).toEqual([
+      ["c1", 0],
+      ["c2", 1],
+      ["c3", 2],
+    ]);
+
+    // 旧响应落地：仍保持第二次的顺序（回弹不再被推迟）
+    stale.resolve(serverAfterFirst);
+    await loading;
+    expect(orderOf("categories")).toEqual([
+      ["c1", 0],
+      ["c2", 1],
+      ["c3", 2],
+    ]);
+
+    // 第二次排序之后发出的对账：正常接受服务端权威顺序
+    const serverAfterSecond = withCategoryOrder(makeAdminData(), [
+      ["c1", "开发"],
+      ["c2", "阅读"],
+      ["c3", "日常"],
+    ]);
+    listAllMock.mockResolvedValue(serverAfterSecond);
+    await useNavStore.getState().loadAdmin();
+    expect(orderOf("categories")).toEqual([
+      ["c1", 0],
+      ["c2", 1],
+      ["c3", 2],
+    ]);
+  });
+
+  it("对账发出前已 settle 的排序会被撤销登记，之后的对账照常覆盖", async () => {
+    reorderCategoriesMock.mockResolvedValue(undefined);
+    // 服务端顺序被别处改动（例如另一台设备）：对账应接受服务端顺序
+    const serverOrder = withCategoryOrder(makeAdminData(), [
+      ["c3", "日常"],
+      ["c2", "阅读"],
+      ["c1", "开发"],
+    ]);
+    listAllMock.mockResolvedValue(serverOrder);
+
+    await useNavStore.getState().reorderCategories(["c2", "c1", "c3"]);
+    await useNavStore.getState().loadAdmin();
+
+    expect(orderOf("categories")).toEqual([
+      ["c3", 0],
+      ["c2", 1],
+      ["c1", 2],
+    ]);
+  });
+});
+
 describe("store 乐观排序：后台数据未加载", () => {
-  it("adminData 为空时仍发出请求，不凭空造状态", async () => {
+  it("adminData 为空时静默返回：不发请求、不凭空造状态", async () => {
     useNavStore.setState({ adminData: null });
     reorderCategoriesMock.mockResolvedValue(undefined);
 
     await useNavStore.getState().reorderCategories(["c1"]);
 
-    expect(reorderCategoriesMock).toHaveBeenCalledWith(["c1"]);
+    expect(reorderCategoriesMock).not.toHaveBeenCalled();
     expect(useNavStore.getState().adminData).toBeNull();
   });
 });

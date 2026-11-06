@@ -101,31 +101,103 @@ interface NavState {
 /** store 里可排序的实体：都带 `id` 与 `sortOrder`。 */
 type SortableRecord = { id: string; sortOrder: number };
 
+/** 后台三类可排序实体在 `adminData` 里的切片名。 */
+type AdminListKey = "categories" | "links" | "searchEngines";
+
+const ADMIN_LIST_KEYS: AdminListKey[] = [
+  "categories",
+  "links",
+  "searchEngines",
+];
+
 /**
  * 按新 ids 就地重写 `sortOrder`，并让数组本身也按新顺序排列。
  * 两个都要做：链接面板按 `sortOrder` 排序，分类 / 引擎面板直接按数组顺序渲染。
- * ids 之外的元素保持原 `sortOrder`，相对顺序不变（稳定排序保证）。
+ * 调用方必须传**全量** ids（三个面板都是：分类 / 引擎是全量 entries，链接是重建后的
+ * 全局 ids）；此时重写后各元素 sortOrder 互不相同，数组顺序即 ids 顺序。
  */
 function applySortOrder<T extends SortableRecord>(
   list: T[],
   ids: string[],
 ): T[] {
-  const indexOf = new Map(ids.map((id, index) => [id, index]));
+  const orderById = new Map(ids.map((id, index) => [id, index]));
   return list
     .map((item) => {
-      const next = indexOf.get(item.id);
+      const next = orderById.get(item.id);
       return next === undefined ? item : { ...item, sortOrder: next };
     })
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
+/** 两个数组是否同一个 id 序列（用于判断本地顺序是否仍是本次乐观写入的结果）。 */
+function hasSameIdOrder<T extends SortableRecord>(
+  list: T[],
+  expected: T[],
+): boolean {
+  return (
+    list.length === expected.length &&
+    list.every((item, index) => item.id === expected[index].id)
+  );
+}
+
+/**
+ * 在飞的乐观排序登记（按实体）。`loadAdmin` 是对账重拉，回来得可能比下一次拖拽晚：
+ * 若它落地时整份覆盖，就会把「后一次」的乐观顺序盖回「前一次」——回弹只是被推迟。
+ * 处理方式见 `reconcileAdminData`：对账落地时把「这份请求发出之后才 settle（或仍在飞）」
+ * 的顺序重新套回新数据。请求失败会立即撤销登记（本地已回滚、服务端也没变）。
+ */
+interface PendingOrder {
+  ids: string[];
+  /** settle 时刻的时钟值；null 表示请求仍在飞。 */
+  settledAt: number | null;
+}
+
+/** 单调时钟：只用来比较「loadAdmin 发出」与「乐观排序 settle」的先后。 */
+let adminClock = 0;
+
+const pendingOrders: Record<AdminListKey, PendingOrder[]> = {
+  categories: [],
+  links: [],
+  searchEngines: [],
+};
+
+/**
+ * 把在飞的乐观排序叠加到对账数据上：
+ *  - settle 早于本次请求发出的登记：服务端响应已包含它，直接撤销；
+ *  - 仍在飞 / 本请求发出后才 settle 的登记：响应可能还没包含，必须保留并重新套上。
+ * 这样对账只刷新与服务端同步的部分，不会把用户刚做的排序盖回旧顺序。
+ */
+function reconcileAdminData(data: AdminData, issuedAt: number): AdminData {
+  for (const key of ADMIN_LIST_KEYS) {
+    pendingOrders[key] = pendingOrders[key].filter(
+      (pending) => pending.settledAt === null || pending.settledAt >= issuedAt,
+    );
+  }
+  return {
+    ...data,
+    categories: pendingOrders.categories.reduce(
+      (list, pending) => applySortOrder(list, pending.ids),
+      data.categories,
+    ),
+    links: pendingOrders.links.reduce(
+      (list, pending) => applySortOrder(list, pending.ids),
+      data.links,
+    ),
+    searchEngines: pendingOrders.searchEngines.reduce(
+      (list, pending) => applySortOrder(list, pending.ids),
+      data.searchEngines,
+    ),
+  };
+}
+
 /**
  * 乐观排序的统一实现（分类 / 链接 / 引擎三者同构）：
  *  1. 同步写新顺序进 store（在首个 await 之前），面板立即重渲染；
- *  2. 发 reorder 请求；失败用操作前快照回滚并 rethrow，由面板 toast。
+ *  2. 发 reorder 请求；失败撤销登记、用操作前快照回滚并 rethrow，由面板 toast。
  * 不做重拉：成功后由面板 `onChanged()`（loadAdmin）对账，行为与现状一致。
  */
 async function optimisticReorder<T extends SortableRecord>(
+  key: AdminListKey,
   pick: (data: AdminData) => T[],
   put: (data: AdminData, list: T[]) => AdminData,
   request: (ids: string[]) => Promise<void>,
@@ -133,19 +205,27 @@ async function optimisticReorder<T extends SortableRecord>(
 ): Promise<void> {
   const data = useNavStore.getState().adminData;
   if (!data) {
-    // 后台数据未加载：没有本地顺序可改，仍把请求发出去（不吞掉用户的排序）。
-    await request(ids);
+    // 后台数据未加载：面板还没渲染（AdminPage 在 settings 就绪前只显示「加载中」），
+    // 没有本地顺序可改，也没有可回滚的状态；按计划静默返回。
     return;
   }
+  const entry: PendingOrder = { ids, settledAt: null };
+  pendingOrders[key].push(entry);
   const prev = pick(data);
   const next = applySortOrder(prev, ids);
   useNavStore.setState({ adminData: put(data, next) });
   try {
     await request(ids);
+    // 成功后登记仍保留：等「在这之后发出」的 loadAdmin 落地对账时才撤销；
+    // 期间若有更早发出的对账数据回来，会用它把本次顺序重新套上（见 reconcileAdminData）。
+    entry.settledAt = ++adminClock;
   } catch (e) {
+    // 失败：撤销登记并回滚。只在本地顺序仍是本次结果时整体回写快照，
+    // 避免盖掉期间更晚的一次乐观排序。
+    const index = pendingOrders[key].indexOf(entry);
+    if (index >= 0) pendingOrders[key].splice(index, 1);
     const current = useNavStore.getState().adminData;
-    // 只回滚「本次乐观写入」的结果：期间若有 loadAdmin 对账落地，不用旧快照盖掉新数据。
-    if (current && pick(current) === next) {
+    if (current && hasSameIdOrder(pick(current), next)) {
       useNavStore.setState({ adminData: put(current, prev) });
     }
     throw e;
@@ -267,9 +347,12 @@ export const useNavStore = create<NavState>((set, get) => ({
   setLoginPrompt: (open) => set({ loginPromptOpen: open }),
 
   loadAdmin: async () => {
+    // 发出时刻：对账响应可能比其后的一次排序更旧，落地时据此决定是否要把
+    // 在飞的乐观顺序重新套上（见 reconcileAdminData）。
+    const issuedAt = ++adminClock;
     try {
       const data = await adminListAll();
-      set({ adminData: data });
+      set({ adminData: reconcileAdminData(data, issuedAt) });
     } catch (e) {
       // 会话失效（401）：后台页回落到未登录态，由 App 的 #admin 关口弹登录
       if (e instanceof ApiError && e.status === 401) {
@@ -291,6 +374,7 @@ export const useNavStore = create<NavState>((set, get) => ({
 
   reorderCategories: (ids) =>
     optimisticReorder(
+      "categories",
       (data) => data.categories,
       (data, categories) => ({ ...data, categories }),
       adminReorderCategories,
@@ -300,6 +384,7 @@ export const useNavStore = create<NavState>((set, get) => ({
   // ids 是**全局**链接顺序（契约 sort_order 全局）；面板负责重建全量 ids。
   reorderLinks: (ids) =>
     optimisticReorder(
+      "links",
       (data) => data.links,
       (data, links) => ({ ...data, links }),
       adminReorderLinks,
@@ -308,6 +393,7 @@ export const useNavStore = create<NavState>((set, get) => ({
 
   reorderEngines: (ids) =>
     optimisticReorder(
+      "searchEngines",
       (data) => data.searchEngines,
       (data, searchEngines) => ({ ...data, searchEngines }),
       adminReorderEngines,

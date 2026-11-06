@@ -135,8 +135,8 @@ export function SearchEnginePanel({
     try {
       await useNavStore.getState().reorderEngines(ids);
       onChanged();
-    } catch {
-      toast.error("排序失败，已恢复原顺序");
+    } catch (e) {
+      toast.error(`排序失败，已恢复原顺序：${(e as Error).message}`);
     }
   };
 

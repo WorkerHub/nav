@@ -176,6 +176,14 @@ function StoreEnginePanel({ onChanged }: { onChanged: () => void }) {
   return <SearchEnginePanel engines={engines} onChanged={onChanged} />;
 }
 
+function StoreLinkPanel({ onChanged }: { onChanged: () => void }) {
+  const categories = useNavStore((s) => s.adminData?.categories ?? []);
+  const links = useNavStore((s) => s.adminData?.links ?? []);
+  return (
+    <LinkPanel categories={categories} links={links} onChanged={onChanged} />
+  );
+}
+
 function pickFile(input: HTMLElement) {
   fireEvent.change(input, { target: { files: [file] } });
 }
@@ -715,9 +723,108 @@ describe("排序：乐观更新（松手 / 点按钮即定住，不回弹）", (
     await user.click(screen.getByRole("button", { name: "下移 开发" }));
 
     await waitFor(() =>
-      expect(toastErrorMock).toHaveBeenCalledWith("排序失败，已恢复原顺序"),
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "排序失败，已恢复原顺序：网络错误",
+      ),
     );
     expect(rowLabels()).toEqual(["编辑 开发", "编辑 阅读"]);
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe("链接面板：乐观更新的可见行顺序与失败回滚", () => {
+  it("「所有」视图：排序请求未返回时可见行顺序立即换位", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    const d = deferred();
+    reorderLinksMock.mockReturnValue(d.promise);
+    useNavStore.setState({ adminData: makeAdminData() });
+
+    render(<StoreLinkPanel onChanged={onChanged} />);
+    expect(rowLabels()).toEqual([
+      "编辑 GitHub",
+      "编辑 少数派",
+      "编辑 知乎",
+      "编辑 MDN",
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "下移 GitHub" }));
+
+    // 请求还没返回：可见行顺序已经换位
+    expect(rowLabels()).toEqual([
+      "编辑 少数派",
+      "编辑 GitHub",
+      "编辑 知乎",
+      "编辑 MDN",
+    ]);
+    expect(onChanged).not.toHaveBeenCalled();
+
+    d.resolve();
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+  });
+
+  it("分类过滤视图：排序请求未返回时可见行顺序立即换位", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    const d = deferred();
+    reorderLinksMock.mockReturnValue(d.promise);
+    useNavStore.setState({ adminData: makeAdminData() });
+
+    render(<StoreLinkPanel onChanged={onChanged} />);
+    await user.click(screen.getByRole("combobox", { name: "选择分类" }));
+    await user.click(screen.getByRole("option", { name: "阅读" }));
+    await waitFor(() => expect(screen.getByText("少数派")).toBeInTheDocument());
+    expect(rowLabels()).toEqual(["编辑 少数派", "编辑 知乎"]);
+
+    await user.click(screen.getByRole("button", { name: "下移 少数派" }));
+
+    expect(rowLabels()).toEqual(["编辑 知乎", "编辑 少数派"]);
+    expect(onChanged).not.toHaveBeenCalled();
+
+    d.resolve();
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+  });
+
+  it("排序失败：可见行顺序回滚到操作前并提示", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    reorderLinksMock.mockRejectedValue(new Error("网络错误"));
+    useNavStore.setState({ adminData: makeAdminData() });
+
+    render(<StoreLinkPanel onChanged={onChanged} />);
+    await user.click(screen.getByRole("button", { name: "下移 GitHub" }));
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "排序失败，已恢复原顺序：网络错误",
+      ),
+    );
+    expect(rowLabels()).toEqual([
+      "编辑 GitHub",
+      "编辑 少数派",
+      "编辑 知乎",
+      "编辑 MDN",
+    ]);
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe("搜索引擎面板：排序失败回滚到操作前", () => {
+  it("排序失败：可见行顺序回滚并提示", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    reorderEnginesMock.mockRejectedValue(new Error("网络错误"));
+    useNavStore.setState({ adminData: makeAdminData({ links: [] }) });
+
+    render(<StoreEnginePanel onChanged={onChanged} />);
+    await user.click(screen.getByRole("button", { name: "下移 Google" }));
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "排序失败，已恢复原顺序：网络错误",
+      ),
+    );
+    expect(rowLabels()).toEqual(["编辑 Google", "编辑 Bing"]);
     expect(onChanged).not.toHaveBeenCalled();
   });
 });
@@ -750,9 +857,8 @@ describe("链接面板：过滤视图下的排序保持全局顺序语义", () =
       expect(reorderLinksMock).toHaveBeenCalledWith(["l1", "l3", "l2", "l4"]),
     );
     expect(onChanged).toHaveBeenCalledTimes(1);
-    expect(
-      useNavStore.getState().adminData!.links.map((l) => [l.id, l.sortOrder]),
-    ).toEqual([
+    const optimistic = useNavStore.getState().adminData?.links ?? [];
+    expect(optimistic.map((l) => [l.id, l.sortOrder])).toEqual([
       ["l1", 0],
       ["l3", 1],
       ["l2", 2],
