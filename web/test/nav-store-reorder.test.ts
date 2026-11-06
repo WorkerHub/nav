@@ -304,6 +304,56 @@ describe("store 乐观排序：失败回滚并抛出", () => {
     );
   });
 
+  it("前一次失败不盖掉后一次已落库的排序（期间发生过对账）", async () => {
+    const first = deferred();
+    reorderCategoriesMock.mockReturnValueOnce(first.promise);
+    const p1 = useNavStore.getState().reorderCategories(["c2", "c1", "c3"]);
+
+    // 后一次排序成功：服务端权威顺序变成 c1,c3,c2
+    reorderCategoriesMock.mockResolvedValueOnce(undefined);
+    await useNavStore.getState().reorderCategories(["c1", "c3", "c2"]);
+
+    // 后一次触发的对账落地（服务端顺序就是它写入的顺序）
+    listAllMock.mockResolvedValue(
+      withCategoryOrder(makeAdminData(), [
+        ["c1", "开发"],
+        ["c3", "日常"],
+        ["c2", "阅读"],
+      ]),
+    );
+    await useNavStore.getState().loadAdmin();
+    expect(adminData().categories.map((c) => c.id)).toEqual(["c1", "c3", "c2"]);
+
+    first.reject(new Error("网络错误"));
+    await expect(p1).rejects.toThrow("网络错误");
+
+    // 停在服务端权威（后一次）顺序，不被前一次的 prev 盖回去
+    expect(adminData().categories.map((c) => c.id)).toEqual(["c1", "c3", "c2"]);
+  });
+
+  it("本地顺序已被别处改写时，失败不再回滚", async () => {
+    const d = deferred();
+    reorderCategoriesMock.mockReturnValue(d.promise);
+    const pending = useNavStore
+      .getState()
+      .reorderCategories(["c2", "c1", "c3"]);
+
+    // 请求在飞时，本地顺序被改成另一种排列（已不是本次写入的顺序）
+    useNavStore.setState({
+      adminData: withCategoryOrder(makeAdminData(), [
+        ["c1", "开发"],
+        ["c3", "日常"],
+        ["c2", "阅读"],
+      ]),
+    });
+
+    d.reject(new Error("网络错误"));
+    await expect(pending).rejects.toThrow("网络错误");
+
+    // 不回滚：保持被改写后的顺序
+    expect(adminData().categories.map((c) => c.id)).toEqual(["c1", "c3", "c2"]);
+  });
+
   it("期间有更晚的排序成功时，前一次失败不去改它", async () => {
     const first = deferred();
     reorderCategoriesMock.mockReturnValueOnce(first.promise);

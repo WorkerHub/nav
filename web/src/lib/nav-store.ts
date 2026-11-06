@@ -138,7 +138,7 @@ function sameIdSequence(a: string[], b: string[]): boolean {
  * 失败回滚：只还原**顺序**，内容一律取当前值。
  *  - 本次排序涉及、当前仍存在的实体，按 `prev` 里的先后重新排列；
  *  - 其余实体（含对账期间新增的）保持当前顺序与内容；
- *  - 返回 null 表示当前顺序已不是本次写入的顺序（期间有更晚的排序改写了它），不回滚。
+ *  - 返回 null 表示这些实体当前的先后已不是本次写入的顺序（顺序被别处改写了），不回滚。
  * 只动顺序不动内容，才能让对账期间带回的新增 / 改名等变化不被旧快照撤销。
  */
 function rollbackOrder<T extends SortableRecord>(
@@ -178,18 +178,18 @@ function rollbackOrder<T extends SortableRecord>(
 }
 
 /**
- * 在飞的乐观排序登记（按实体）。`loadAdmin` 是对账重拉，回来得可能比下一次拖拽晚：
- * 若它落地时整份覆盖，就会把「后一次」的乐观顺序盖回「前一次」——回弹只是被推迟。
- * 处理方式见 `reconcileAdminData`：对账落地时把「这份请求发出之后才 settle（或仍在飞）」
- * 的顺序重新套回新数据。请求失败会立即撤销登记。
+ * 一次乐观排序的登记。`loadAdmin` 是对账重拉，可能把上一次操作的旧数据带回：
+ * 处理方式见 `reconcileAdminData`——只把「最新一次乐观写入」的顺序重新套回新数据。
  */
 interface PendingOrder {
+  /** 写入序号（单调递增）：判定「谁是最新一次写入」，对账与回滚都以它为准。 */
+  seq: number;
   ids: string[];
   /** settle 时刻的时钟值；null 表示请求仍在飞。 */
   settledAt: number | null;
 }
 
-/** 单调时钟：只用来比较「loadAdmin 发出」与「乐观排序 settle」的先后。 */
+/** 单调时钟：给每次乐观写入、settle、对账发出编号。 */
 let adminClock = 0;
 
 const pendingOrders: Record<AdminListKey, PendingOrder[]> = {
@@ -199,11 +199,22 @@ const pendingOrders: Record<AdminListKey, PendingOrder[]> = {
 };
 
 /**
- * 把在飞的乐观排序叠加到对账数据上：
- *  - settle 早于本次请求发出的登记：服务端处理时已包含它，直接撤销；
- *  - 仍在飞 / 本请求发出后才 settle 的登记：响应是否包含它无法确定，一律保留并重新
- *    套上（即使已包含，重套同一顺序也无副作用）。
- * 这样对账只刷新与服务端同步的部分，不会把用户刚做的排序盖回旧顺序。
+ * 每个实体「最新一次未被回滚撤销的乐观写入」序号（0 = 没有）。
+ * 单独保存是因为登记会在对账时被清掉，而「之后又发生过一次写入」这个事实不能丢——
+ * 前一次失败时能否回滚、对账时要套哪一次的 ids，都靠它判断。
+ */
+const latestWriteSeq: Record<AdminListKey, number> = {
+  categories: 0,
+  links: 0,
+  searchEngines: 0,
+};
+
+/**
+ * 把乐观顺序叠加到对账数据上：
+ *  - 只叠加「最新一次乐观写入」的顺序：更早的写入已被它覆盖，重新套上会把旧顺序带回来；
+ *  - 最新那次若已 settle 且早于本次请求发出（登记已被上面撤销），服务端响应已包含它，
+ *    此时不再叠加任何顺序（更早的在飞写入也不能盖过它）。
+ * 这样对账只刷新与服务端同步的部分，不会把用户最近一次排序盖回旧顺序。
  */
 function reconcileAdminData(data: AdminData, issuedAt: number): AdminData {
   for (const key of ADMIN_LIST_KEYS) {
@@ -211,20 +222,20 @@ function reconcileAdminData(data: AdminData, issuedAt: number): AdminData {
       (pending) => pending.settledAt === null || pending.settledAt >= issuedAt,
     );
   }
+  const latest = (key: AdminListKey) =>
+    pendingOrders[key].find((pending) => pending.seq === latestWriteSeq[key]);
+  const categories = latest("categories");
+  const links = latest("links");
+  const searchEngines = latest("searchEngines");
   return {
     ...data,
-    categories: pendingOrders.categories.reduce(
-      (list, pending) => applySortOrder(list, pending.ids),
-      data.categories,
-    ),
-    links: pendingOrders.links.reduce(
-      (list, pending) => applySortOrder(list, pending.ids),
-      data.links,
-    ),
-    searchEngines: pendingOrders.searchEngines.reduce(
-      (list, pending) => applySortOrder(list, pending.ids),
-      data.searchEngines,
-    ),
+    ...(categories
+      ? { categories: applySortOrder(data.categories, categories.ids) }
+      : {}),
+    ...(links ? { links: applySortOrder(data.links, links.ids) } : {}),
+    ...(searchEngines
+      ? { searchEngines: applySortOrder(data.searchEngines, searchEngines.ids) }
+      : {}),
   };
 }
 
@@ -247,8 +258,9 @@ async function optimisticReorder<T extends SortableRecord>(
     // 没有本地顺序可改，也没有可回滚的状态；按计划静默返回。
     return;
   }
-  const entry: PendingOrder = { ids, settledAt: null };
+  const entry: PendingOrder = { seq: ++adminClock, ids, settledAt: null };
   pendingOrders[key].push(entry);
+  latestWriteSeq[key] = entry.seq;
   const prev = pick(data);
   const next = applySortOrder(prev, ids);
   useNavStore.setState({ adminData: put(data, next) });
@@ -258,17 +270,22 @@ async function optimisticReorder<T extends SortableRecord>(
     // 期间若有更早发出的对账数据回来，会用它把本次顺序重新套上（见 reconcileAdminData）。
     entry.settledAt = ++adminClock;
   } catch (e) {
-    // 失败：撤销登记，并只把**顺序**还原到操作前；实体内容取当前值，
-    // 对账期间带回的新增 / 改名等变化不会被旧快照撤销。
+    // 失败：撤销登记。只有「本次仍是最新一次写入」时才回滚顺序，
+    // 否则期间更晚的排序已经接管，回滚会把它盖掉。
     const index = pendingOrders[key].indexOf(entry);
-    // 登记按注册顺序排列：它后面还有登记，说明期间有更晚的排序，别去改它。
-    const hasLater = index >= 0 && index < pendingOrders[key].length - 1;
     if (index >= 0) pendingOrders[key].splice(index, 1);
-    const current = useNavStore.getState().adminData;
-    if (!hasLater && current) {
-      const rolledBack = rollbackOrder(pick(current), prev, ids);
-      if (rolledBack) {
-        useNavStore.setState({ adminData: put(current, rolledBack) });
+    if (latestWriteSeq[key] === entry.seq) {
+      // 撤销后由仍在生效的更早一次写入接管（没有则归 0）
+      latestWriteSeq[key] = pendingOrders[key].reduce(
+        (max, pending) => Math.max(max, pending.seq),
+        0,
+      );
+      const current = useNavStore.getState().adminData;
+      if (current) {
+        const rolledBack = rollbackOrder(pick(current), prev, ids);
+        if (rolledBack) {
+          useNavStore.setState({ adminData: put(current, rolledBack) });
+        }
       }
     }
     throw e;
