@@ -275,9 +275,11 @@ async function optimisticReorder<T extends SortableRecord>(
     const index = pendingOrders[key].indexOf(entry);
     if (index >= 0) pendingOrders[key].splice(index, 1);
     if (latestWriteSeq[key] === entry.seq) {
-      // 撤销后由仍在生效的更早一次写入接管（没有则归 0）
+      // 只由**仍在飞**的更早一次写入接管顺序（没有则归 0）：已 settle 的旧登记
+      // 其顺序早已在服务端生效，不能再被当成「最新一次写入」去套对账数据。
       latestWriteSeq[key] = pendingOrders[key].reduce(
-        (max, pending) => Math.max(max, pending.seq),
+        (max, pending) =>
+          pending.settledAt === null ? Math.max(max, pending.seq) : max,
         0,
       );
       const current = useNavStore.getState().adminData;

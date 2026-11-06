@@ -331,6 +331,66 @@ describe("store 乐观排序：失败回滚并抛出", () => {
     expect(adminData().categories.map((c) => c.id)).toEqual(["c1", "c3", "c2"]);
   });
 
+  it("两次写入同一组 ids：前一次失败不覆盖后一次已落库的顺序", async () => {
+    const first = deferred();
+    reorderLinksMock.mockReturnValueOnce(first.promise);
+    const p1 = useNavStore.getState().reorderLinks(["l1", "l3", "l2", "l4"]);
+
+    // 后一次写入完全相同的全局 ids（链接面板连续移动会重建出同一份 ids）
+    reorderLinksMock.mockResolvedValueOnce(undefined);
+    await useNavStore.getState().reorderLinks(["l1", "l3", "l2", "l4"]);
+
+    // 后一次触发的对账落地：服务端就是这组顺序
+    listAllMock.mockResolvedValue({
+      ...makeAdminData(),
+      links: [
+        link("l1", "c1", "GitHub", 0),
+        link("l3", "c2", "知乎", 1),
+        link("l2", "c2", "少数派", 2),
+        link("l4", "c1", "MDN", 3),
+      ],
+    });
+    await useNavStore.getState().loadAdmin();
+    expect(adminData().links.map((l) => l.id)).toEqual([
+      "l1",
+      "l3",
+      "l2",
+      "l4",
+    ]);
+
+    first.reject(new Error("网络错误"));
+    await expect(p1).rejects.toThrow("网络错误");
+
+    // 不被前一次的 prev(l1,l2,l3,l4) 盖回去
+    expect(adminData().links.map((l) => l.id)).toEqual([
+      "l1",
+      "l3",
+      "l2",
+      "l4",
+    ]);
+  });
+
+  it("两次排序都失败：依次回滚到最初顺序", async () => {
+    const a = deferred();
+    const b = deferred();
+    reorderCategoriesMock
+      .mockReturnValueOnce(a.promise)
+      .mockReturnValueOnce(b.promise);
+
+    const pa = useNavStore.getState().reorderCategories(["c2", "c1", "c3"]);
+    const pb = useNavStore.getState().reorderCategories(["c1", "c3", "c2"]);
+
+    b.reject(new Error("网络错误"));
+    await expect(pb).rejects.toThrow("网络错误");
+    // 后一次失败先回滚到前一次（仍在飞）的顺序
+    expect(adminData().categories.map((c) => c.id)).toEqual(["c2", "c1", "c3"]);
+
+    a.reject(new Error("网络错误"));
+    await expect(pa).rejects.toThrow("网络错误");
+    // 前一次也失败后，回到最初的顺序
+    expect(adminData().categories.map((c) => c.id)).toEqual(["c1", "c2", "c3"]);
+  });
+
   it("本地顺序已被别处改写时，失败不再回滚", async () => {
     const d = deferred();
     reorderCategoriesMock.mockReturnValue(d.promise);
